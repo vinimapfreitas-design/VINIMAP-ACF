@@ -1,0 +1,9 @@
+{
+  "name": "VMAPSACF",
+  "description": "Painel operacional e de monitoramento ViniMap para frotas e entregadores em tempo real.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
