@@ -487,7 +487,7 @@ function checkFirestoreQuotaExhaustion(err: any): boolean {
   ) {
     if (!isFirestoreQuotaExhausted) {
       isFirestoreQuotaExhausted = true;
-      firestoreQuotaCooldownUntil = Date.now() + 12 * 60 * 60 * 1000; // 12h cooldown
+      firestoreQuotaCooldownUntil = Date.now() + 24 * 60 * 60 * 1000; // 24h cooldown
       try {
         fs.writeFileSync(QUOTA_STATE_FILE, JSON.stringify({
           cooldownUntil: firestoreQuotaCooldownUntil,
@@ -508,6 +508,38 @@ function checkFirestoreQuotaExhaustion(err: any): boolean {
   }
   return false;
 }
+
+// Intercept Firestore SDK internal logs in server console to prevent unhandled stream retry loops
+const origConsoleWarn = console.warn;
+const origConsoleError = console.error;
+const isFirestoreQuotaStreamLog = (args: any[]): boolean => {
+  const str = args.map(a => String(a?.message || a || '')).join(' ');
+  return (
+    str.includes('@firebase/firestore') && (
+      str.includes('RESOURCE_EXHAUSTED') ||
+      str.includes('Quota limit exceeded') ||
+      str.includes('Free daily write units') ||
+      str.includes('Free daily read units') ||
+      str.includes('Using maximum backoff delay')
+    )
+  );
+};
+
+console.warn = (...args: any[]) => {
+  if (isFirestoreQuotaStreamLog(args)) {
+    checkFirestoreQuotaExhaustion(args.join(' '));
+    return;
+  }
+  origConsoleWarn.apply(console, args);
+};
+
+console.error = (...args: any[]) => {
+  if (isFirestoreQuotaStreamLog(args)) {
+    checkFirestoreQuotaExhaustion(args.join(' '));
+    return;
+  }
+  origConsoleError.apply(console, args);
+};
 
 // Initialize Google Cloud Firestore Client dynamically from file configuration using Web SDK to bypass IAM restrictions
 let firestore: Firestore | null = null;
@@ -821,7 +853,12 @@ async function saveAllToSupabaseREST(data: any) {
       for (let i = 0; i < mapped.length; i += chunkSize) {
         if (!supabaseServerClient) break;
         const chunk = mapped.slice(i, i + chunkSize);
-        const { error } = await supabaseServerClient?.from("orders").upsert(chunk);
+        let { error } = await supabaseServerClient?.from("orders").upsert(chunk);
+        if (error && (error.message?.includes("'numero' column") || error.message?.includes("numero"))) {
+          const stripped = chunk.map(({ numero, ...rest }: any) => rest);
+          const retryRes = await supabaseServerClient?.from("orders").upsert(stripped);
+          error = retryRes.error;
+        }
         if (error) {
           if (handleSupabaseError(error)) return;
           if (isTableMissingError(error)) {
@@ -2105,19 +2142,7 @@ async function saveAllToFirestore(data: any, specificCollection?: string) {
 
       const collectionsToSync = pendingFirestoreCollections.size > 0
         ? Array.from(pendingFirestoreCollections)
-        : [
-            "orders",
-            "couriers",
-            "activities",
-            "partnerClients",
-            "hubs",
-            "freightRules",
-            "operators",
-            "financeTransactions",
-            "financialReports",
-            "regionStats",
-            "hourlyStats"
-          ];
+        : ["orders"];
       pendingFirestoreCollections.clear();
 
       console.log(`[Firestore Database] Sincronizando (${collectionsToSync.join(', ')}) com o Firestore...`);
@@ -3060,6 +3085,20 @@ app.get("/api/branding/logo", (req, res) => {
 // 0. Lightweight Ping for Latency Monitoring
 app.get("/api/ping", (req, res) => {
   res.json({ status: "pong", timestamp: Date.now() });
+});
+
+// Endpoint to expose Firestore status and circuit-breaker info to client
+app.get("/api/firestore/status", (req, res) => {
+  const quotaExhausted = shouldSkipFirestore();
+  res.json({
+    quotaExhausted,
+    isLive: Boolean(firestore && !quotaExhausted),
+    cooldownUntil: firestoreQuotaCooldownUntil,
+    reason: isFirestoreQuotaExhausted
+      ? "Cota diária gratuita do Firestore atingida (RESOURCE_EXHAUSTED). Operando 100% via Supabase PostgreSQL e Local DB."
+      : null,
+    primaryDatabase: "Supabase PostgreSQL"
+  });
 });
 
 // Endpoint to expose non-sensitive Supabase config dynamically to client

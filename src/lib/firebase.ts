@@ -34,13 +34,13 @@ export const isFirebaseConfigured = Boolean(
 
 const QUOTA_STORAGE_KEY = 'vinimap_firestore_quota_exhausted_timestamp';
 
-// Check if quota cooldown is active (persist for up to 12 hours or until next day)
+// Check if quota cooldown is active (persist for up to 24 hours or until next day)
 const initQuotaState = (): boolean => {
   try {
     const raw = typeof window !== 'undefined' ? localStorage.getItem(QUOTA_STORAGE_KEY) : null;
     if (raw) {
       const ts = Number(raw);
-      if (Date.now() - ts < 12 * 60 * 60 * 1000) {
+      if (Date.now() - ts < 24 * 60 * 60 * 1000) {
         return true;
       } else {
         localStorage.removeItem(QUOTA_STORAGE_KEY);
@@ -52,6 +52,48 @@ const initQuotaState = (): boolean => {
 
 let firestoreQuotaExceeded = initQuotaState();
 const quotaListeners: Array<(exceeded: boolean) => void> = [];
+
+// Intercept browser console quota logs to prevent unhandled stream errors
+if (typeof window !== 'undefined') {
+  const origWarn = console.warn;
+  const origError = console.error;
+  const isQuotaMsg = (args: any[]) => {
+    const str = args.map(a => String(a?.message || a || '')).join(' ');
+    return (
+      str.includes('RESOURCE_EXHAUSTED') ||
+      str.includes('Quota limit exceeded') ||
+      str.includes('Free daily write units') ||
+      str.includes('Free daily read units') ||
+      str.includes('Using maximum backoff delay')
+    );
+  };
+
+  console.warn = (...args: any[]) => {
+    if (isQuotaMsg(args)) {
+      markFirestoreQuotaExceeded('Aviso de cota diária do Firestore interceptado');
+      return;
+    }
+    origWarn.apply(console, args);
+  };
+
+  console.error = (...args: any[]) => {
+    if (isQuotaMsg(args)) {
+      markFirestoreQuotaExceeded('Erro de cota diária do Firestore interceptado');
+      return;
+    }
+    origError.apply(console, args);
+  };
+
+  // Synchronize quota state with server backend immediately
+  fetch('/api/firestore/status')
+    .then(r => r.json())
+    .then(res => {
+      if (res?.quotaExhausted) {
+        markFirestoreQuotaExceeded(res.reason || 'Sincronizado com backend: cota diária do Firestore em cooldown');
+      }
+    })
+    .catch(() => {});
+}
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
