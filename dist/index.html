@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Prevent breaking browser locker behavior (native modal blocks) in sandbox iframe
+      (function() {
+        try {
+          var log = function(type, msg) {
+            console.log("[ViniMap Sandbox Intercepted " + type + "]:", msg);
+          };
+          var safeAlert = function(msg) {
+            log("alert", msg);
+          };
+          var safeConfirm = function(msg) {
+            log("confirm", msg);
+            return true;
+          };
+          var safePrompt = function(msg, defaultVal) {
+            log("prompt", msg);
+            return defaultVal || null;
+          };
+
+          // Try standard assignment first
+          window.alert = safeAlert;
+          window.confirm = safeConfirm;
+          window.prompt = safePrompt;
+
+          // Override via Object.defineProperty to bypass read-only or platform-bound locks
+          try {
+            Object.defineProperty(window, 'alert', {
+              get: function() { return safeAlert; },
+              set: function() {},
+              configurable: true
+            });
+          } catch(e) {}
+          try {
+            Object.defineProperty(window, 'confirm', {
+              get: function() { return safeConfirm; },
+              set: function() {},
+              configurable: true
+            });
+          } catch(e) {}
+          try {
+            Object.defineProperty(window, 'prompt', {
+              get: function() { return safePrompt; },
+              set: function() {},
+              configurable: true
+            });
+          } catch(e) {}
+
+          // Prevent "Converting circular structure to JSON" crashes anywhere in the application
+          if (typeof JSON !== 'undefined' && JSON.stringify) {
+            var nativeStringify = JSON.stringify;
+            JSON.stringify = function(value, replacer, space) {
+              try {
+                return nativeStringify(value, replacer, space);
+              } catch (err) {
+                if (err && err.name === 'TypeError' && String(err.message).indexOf('circular') !== -1) {
+                  try {
+                    var seen = new WeakSet();
+                    return nativeStringify(value, function(k, v) {
+                      if (typeof v === 'object' && v !== null) {
+                        if (seen.has(v)) {
+                          return undefined;
+                        }
+                        seen.add(v);
+                      }
+                      if (typeof replacer === 'function') {
+                        return replacer(k, v);
+                      }
+                      return v;
+                    }, space);
+                  } catch (secondaryErr) {
+                    console.warn('[ViniMap Safe JSON.stringify fallback]:', secondaryErr);
+                    return '{}';
+                  }
+                }
+                throw err;
+              }
+            };
+          }
+        } catch (globalError) {
+          console.error("ViniMap Sandbox: Failed to override native dialog functions", globalError);
+        }
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>VMAPSACF - ViniMap Fleet</title>
+    <meta name="description" content="Painel operacional e de monitoramento ViniMap para frotas e entregadores em tempo real." />
+    <meta property="og:title" content="VMAPSACF - ViniMap Fleet" />
+    <meta property="og:description" content="Painel operacional e de monitoramento ViniMap para frotas e entregadores em tempo real." />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" type="image/png" href="/api/branding/logo" />
+    <link rel="shortcut icon" href="/api/branding/logo" />
+    <link rel="apple-touch-icon" href="/api/branding/logo" />
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then(reg => {
+            console.log('[PWA] Service Worker registrado com sucesso:', reg.scope);
+          }).catch(err => {
+            console.warn('[PWA] Não foi possível registrar o Service Worker:', err);
+          });
+        });
+      }
+    </script>
+    <script type="module" crossorigin src="/assets/index-9_CH-HDq.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-core-DrqjduKc.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-pdf-D6AybmTW.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-charts-CmpXDHV6.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-xlsx-BBWTpfDg.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-firebase-Dx-R8GNV.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CwciN7bM.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+
