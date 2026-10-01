@@ -1,0 +1,1375 @@
+{
+  "id": "32b2a408-773d-4d45-84f1-97f6a1411670",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.activities": {
+      "name": "activities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "time": {
+          "name": "time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courierName": {
+          "name": "courierName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "orderId": {
+          "name": "orderId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user": {
+          "name": "user",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.app_branding": {
+      "name": "app_branding",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "appName": {
+          "name": "appName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "appSubtitle": {
+          "name": "appSubtitle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logoUrl": {
+          "name": "logoUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "logoIconType": {
+          "name": "logoIconType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "primaryColor": {
+          "name": "primaryColor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "secondaryColor": {
+          "name": "secondaryColor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.couriers": {
+      "name": "couriers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vehicle": {
+          "name": "vehicle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plate": {
+          "name": "plate",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar": {
+          "name": "avatar",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ordersCompleted": {
+          "name": "ordersCompleted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rating": {
+          "name": "rating",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currentLat": {
+          "name": "currentLat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currentLng": {
+          "name": "currentLng",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "angle": {
+          "name": "angle",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repasseTaxa": {
+          "name": "repasseTaxa",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repasseFormato": {
+          "name": "repasseFormato",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repassePorcentagem": {
+          "name": "repassePorcentagem",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "showDeliveryFee": {
+          "name": "showDeliveryFee",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activeSessionToken": {
+          "name": "activeSessionToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "activeDeviceId": {
+          "name": "activeDeviceId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lastLoginAt": {
+          "name": "lastLoginAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lastLoginDevice": {
+          "name": "lastLoginDevice",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.diary_entries": {
+      "name": "diary_entries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorId": {
+          "name": "authorId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "authorName": {
+          "name": "authorName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isPinned": {
+          "name": "isPinned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tags": {
+          "name": "tags",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.finance_transactions": {
+      "name": "finance_transactions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "paymentMethod": {
+          "name": "paymentMethod",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expenseNature": {
+          "name": "expenseNature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isRecurring": {
+          "name": "isRecurring",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recurrentGroupId": {
+          "name": "recurrentGroupId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "installmentNumber": {
+          "name": "installmentNumber",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "totalInstallments": {
+          "name": "totalInstallments",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.freight_import_history": {
+      "name": "freight_import_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "partnerId": {
+          "name": "partnerId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "partnerName": {
+          "name": "partnerName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "importedAt": {
+          "name": "importedAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fileName": {
+          "name": "fileName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rulesCount": {
+          "name": "rulesCount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "importedBy": {
+          "name": "importedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.freight_rules": {
+      "name": "freight_rules",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "partnerId": {
+          "name": "partnerId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codigoCliente": {
+          "name": "codigoCliente",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cepMin": {
+          "name": "cepMin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cepMax": {
+          "name": "cepMax",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valorRepasse": {
+          "name": "valorRepasse",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prioridade": {
+          "name": "prioridade",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "regiao": {
+          "name": "regiao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prazoDias": {
+          "name": "prazoDias",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pesoMaximo": {
+          "name": "pesoMaximo",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observacao": {
+          "name": "observacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lastUpdated": {
+          "name": "lastUpdated",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "lastUpdatedBy": {
+          "name": "lastUpdatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.hubs": {
+      "name": "hubs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cep": {
+          "name": "cep",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
+        },
+        "endRoutingType": {
+          "name": "endRoutingType",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "manualEndAddress": {
+          "name": "manualEndAddress",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.operators": {
+      "name": "operators",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "login": {
+          "name": "login",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "permissions": {
+          "name": "permissions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "canConsult": {
+          "name": "canConsult",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "canAlter": {
+          "name": "canAlter",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "canCreate": {
+          "name": "canCreate",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.orders": {
+      "name": "orders",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cliente": {
+          "name": "cliente",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "customerName": {
+          "name": "customerName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statusText": {
+          "name": "statusText",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataSolicitacao": {
+          "name": "dataSolicitacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataFinalizacao": {
+          "name": "dataFinalizacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courierId": {
+          "name": "courierId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courierName": {
+          "name": "courierName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "volume": {
+          "name": "volume",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight": {
+          "name": "weight",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observacao": {
+          "name": "observacao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sequencia": {
+          "name": "sequencia",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bairro": {
+          "name": "bairro",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cidade": {
+          "name": "cidade",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uf": {
+          "name": "uf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cep": {
+          "name": "cep",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipoServico": {
+          "name": "tipoServico",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "comprovanteUrl": {
+          "name": "comprovanteUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notaFiscal": {
+          "name": "notaFiscal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valorCondutor": {
+          "name": "valorCondutor",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "history": {
+          "name": "history",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "time": {
+          "name": "time",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codigoCliente": {
+          "name": "codigoCliente",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pedido": {
+          "name": "pedido",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "procurarPor": {
+          "name": "procurarPor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "telefone": {
+          "name": "telefone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "detalhe": {
+          "name": "detalhe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "complemento": {
+          "name": "complemento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispositivoCondutor": {
+          "name": "dispositivoCondutor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "horarioFinal": {
+          "name": "horarioFinal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documentoEmpresa": {
+          "name": "documentoEmpresa",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipoEntrega": {
+          "name": "tipoEntrega",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "prioridade": {
+          "name": "prioridade",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chamado": {
+          "name": "chamado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "danfe": {
+          "name": "danfe",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataLimite": {
+          "name": "dataLimite",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nomeFantasia": {
+          "name": "nomeFantasia",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "horarioInicio": {
+          "name": "horarioInicio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dataAgendamento": {
+          "name": "dataAgendamento",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cidadeMunicipio": {
+          "name": "cidadeMunicipio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "estado": {
+          "name": "estado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valorNotaFiscal": {
+          "name": "valorNotaFiscal",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valorReceber": {
+          "name": "valorReceber",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "valorEntrega": {
+          "name": "valorEntrega",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "destinatarioCnpjCpf": {
+          "name": "destinatarioCnpjCpf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isImported": {
+          "name": "isImported",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "statusSincronizado": {
+          "name": "statusSincronizado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_sincronizado": {
+          "name": "status_sincronizado",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deliveryProtocol": {
+          "name": "deliveryProtocol",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proofPhotoUrl": {
+          "name": "proofPhotoUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signatureDataUrl": {
+          "name": "signatureDataUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "receiverName": {
+          "name": "receiverName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "receiverDoc": {
+          "name": "receiverDoc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deliveredAt": {
+          "name": "deliveredAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "versionTimestamp": {
+          "name": "versionTimestamp",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allocatedDate": {
+          "name": "allocatedDate",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isDeleted": {
+          "name": "isDeleted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.partners": {
+      "name": "partners",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cnpjCpf": {
+          "name": "cnpjCpf",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "codigoCliente": {
+          "name": "codigoCliente",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cepSpreadsheetUrl": {
+          "name": "cepSpreadsheetUrl",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.push_subscriptions": {
+      "name": "push_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "courierId": {
+          "name": "courierId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "subscription": {
+          "name": "subscription",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
