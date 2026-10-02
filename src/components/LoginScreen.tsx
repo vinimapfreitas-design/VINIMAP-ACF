@@ -336,13 +336,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
 
     // 2. Fallback attempt: Match against localCouriers array
+    const normLoginPhone = (p: string) => String(p).replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
     let matchedCourier = localCouriers.find(c => {
-      const cCleanPhone = (c.phone || '').replace(/\D/g, '');
-      if (cleanInputDigits && cCleanPhone) {
-        if (cCleanPhone === cleanInputDigits) return true;
-        if (cleanInputDigits.length >= 8 && cCleanPhone.endsWith(cleanInputDigits)) return true;
-        if (cCleanPhone.length >= 8 && cleanInputDigits.endsWith(cCleanPhone)) return true;
-      }
+      const cCleanPhone = normLoginPhone(c.phone || '');
+      const normInput = normLoginPhone(cleanInputDigits);
+      if (cleanInputDigits && cCleanPhone && normInput.length >= 10 && cCleanPhone === normInput) return true;
       if (c.id.toLowerCase() === inputTrimmed.toLowerCase()) return true;
       if (c.name.toLowerCase() === inputTrimmed.toLowerCase()) return true;
       return false;

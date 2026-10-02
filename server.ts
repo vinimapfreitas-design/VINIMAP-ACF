@@ -5527,14 +5527,19 @@ app.post("/api/driver/login", async (req, res) => {
     const db = loadDB();
     const couriers = db.couriers || [];
 
-    // Search by cleaned phone digits or by direct ID or name
+    // Search by cleaned phone digits (EXACT normalized match, sem endsWith ambíguo) or by direct ID or name
     const courier = couriers.find((c: any) => {
       const cCleanPhone = String(c.phone || "").replace(/\D/g, "");
       const cId = String(c.id || "").toLowerCase();
       const inputLower = inputPhone.toLowerCase();
 
-      if (inputCleanPhone && cCleanPhone && (cCleanPhone === inputCleanPhone || cCleanPhone.endsWith(inputCleanPhone) || inputCleanPhone.endsWith(cCleanPhone))) {
-        return true;
+      if (inputCleanPhone && cCleanPhone) {
+        // Match exato normalizado: tolera apenas o prefixo 55 (Brasil) e exige tamanho mínimo de telefone
+        const normInput = inputCleanPhone.replace(/^55(?=1[1-9])/, "");
+        const normCPhone = cCleanPhone.replace(/^55(?=1[1-9])/, "");
+        if (normInput.length >= 10 && normInput === normCPhone) {
+          return true;
+        }
       }
       if (cId === inputLower) {
         return true;
@@ -5564,6 +5569,27 @@ app.post("/api/driver/login", async (req, res) => {
     const clientDeviceId = req.body?.deviceId || `dev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newSessionToken = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const nowIso = new Date().toISOString();
+
+    // REGRA DE APARELHO: revogar a sessão de QUALQUER OUTRO condutor que esteja
+    // vinculado ao mesmo deviceId (para que nunca haja 2 condutores ativos no mesmo celular)
+    try {
+      let revokedOthers = 0;
+      couriers.forEach((other: any) => {
+        if (other && other.id !== courier.id && other.activeDeviceId && other.activeDeviceId === clientDeviceId) {
+          other.activeSessionToken = null;
+          other.activeDeviceId = null;
+          other.lastLoginAt = null;
+          other.lastLoginDevice = null;
+          revokedOthers++;
+        }
+      });
+      if (revokedOthers > 0) {
+        console.log(`[POST /api/driver/login] Sessão de ${revokedOthers} outro(s) condutor(es) revogada(s) no mesmo aparelho (deviceId ${clientDeviceId}).`);
+      }
+    } catch (revokeErr) {
+      console.warn("[POST /api/driver/login] Aviso ao revogar sessões anteriores no mesmo aparelho:", revokeErr);
+    }
+
     courier.activeSessionToken = newSessionToken;
     courier.activeDeviceId = clientDeviceId;
     courier.lastLoginAt = nowIso;

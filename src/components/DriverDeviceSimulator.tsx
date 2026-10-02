@@ -229,11 +229,12 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
       return !isStandalone && couriers.length > 0 ? couriers[0] : null;
     }
     const userCleanPhone = targetId.replace(/\D/g, '');
+    const normPhone = (p: string) => String(p).replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
     const matched = couriers.find(c => {
-      const cPhoneClean = (c.phone || '').replace(/\D/g, '');
+      const cPhoneClean = normPhone(c.phone || '');
       return (
         c.id === targetId || 
-        (cPhoneClean && userCleanPhone && (cPhoneClean === userCleanPhone || cPhoneClean.endsWith(userCleanPhone) || userCleanPhone.endsWith(cPhoneClean))) ||
+        (cPhoneClean && userCleanPhone && normPhone(userCleanPhone).length >= 10 && cPhoneClean === normPhone(userCleanPhone)) ||
         (c.name && targetId && c.name.toLowerCase() === targetId.toLowerCase())
       );
     });

@@ -316,17 +316,18 @@ export const isDriverMatchingSession = (driverUser: any, searchParams: URLSearch
   // If no driver specified in URL, existing valid driver session is accepted
   if (!urlId && !urlPhone) return true;
 
-  const userCleanPhone = String(driverUser.phone || driverUser.login || '').replace(/\D/g, '');
-  const urlCleanPhone = String(urlPhone || '').replace(/\D/g, '');
-  const urlIdCleanPhone = String(urlId || '').replace(/\D/g, '');
+  const normMatchPhone = (p: string) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+  const userCleanPhone = normMatchPhone(driverUser.phone || driverUser.login || '');
+  const urlCleanPhone = normMatchPhone(urlPhone || '');
+  const urlIdCleanPhone = normMatchPhone(urlId || '');
 
   if (urlId && (driverUser.id === urlId || driverUser.login === urlId)) {
     return true;
   }
-  if (urlCleanPhone && userCleanPhone && (userCleanPhone === urlCleanPhone || userCleanPhone.endsWith(urlCleanPhone) || urlCleanPhone.endsWith(userCleanPhone))) {
+  if (urlCleanPhone && userCleanPhone && urlCleanPhone.length >= 10 && userCleanPhone === urlCleanPhone) {
     return true;
   }
-  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 8 && (userCleanPhone === urlIdCleanPhone || userCleanPhone.endsWith(urlIdCleanPhone) || urlIdCleanPhone.endsWith(userCleanPhone))) {
+  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 10 && userCleanPhone === urlIdCleanPhone) {
     return true;
   }
   
