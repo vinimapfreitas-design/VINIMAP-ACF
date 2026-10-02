@@ -4229,17 +4229,18 @@ function findOrderIndex(orders: any[], idOrPedido: string): number {
     const oPedido = String(o.pedido || '').trim().toLowerCase();
     if (oPedido && (oPedido === target || oPedido === targetClean)) return true;
 
-    // Suffix match (e.g., 152869 matching CLI-002-ZCO-152869 or vice versa)
-    if (target.length >= 4 && (oId.endsWith(target) || target.endsWith(oId))) return true;
-    if (targetClean.length >= 4 && (oIdClean.endsWith(targetClean) || targetClean.endsWith(oIdClean))) return true;
-
-    // Digits comparison for PED orders (e.g. 729 or 731 matching PED-00729 or PED-00731)
-    if (targetDigits) {
-      const oDigits = oId.replace(/\D/g, '').replace(/^0+/, '');
-      if (oDigits && oDigits === targetDigits) return true;
+    // Digits comparison for PED orders (e.g. 729 or 731 matching PED-00729 or 01022)
+    if (targetDigits && (target.startsWith('ped-') || /^\d+$/.test(target))) {
+      if (oId.startsWith('ped-') || /^\d+$/.test(oId)) {
+        const oDigits = oId.replace(/\D/g, '').replace(/^0+/, '');
+        if (oDigits && oDigits === targetDigits) return true;
+      }
       const pedDigits = oPedido.replace(/\D/g, '').replace(/^0+/, '');
       if (pedDigits && pedDigits === targetDigits) return true;
     }
+
+    // Suffix match for specific client tracking codes (e.g., 152869 matching CLI-002-ZCO-152869)
+    if (target.length >= 6 && oId.length >= 6 && (oId.endsWith(target) || target.endsWith(oId))) return true;
 
     return false;
   });
@@ -4375,8 +4376,20 @@ app.put("/api/orders/:id", async (req, res) => {
       updatedOrder.valorCondutor = (req.body.valorCondutor !== undefined && Number(req.body.valorCondutor) > 0)
         ? Number(req.body.valorCondutor)
         : (existingOrder.valorCondutor && Number(existingOrder.valorCondutor) > 0 ? Number(existingOrder.valorCondutor) : computedRepasse);
+      if (courierObj) {
+        updatedOrder.courierName = courierObj.name || updatedOrder.courierName || '';
+        updatedOrder.allocatedCourierName = courierObj.name || updatedOrder.allocatedCourierName || '';
+        updatedOrder.nomeCondutor = courierObj.name || updatedOrder.nomeCondutor || '';
+        updatedOrder.dispositivoCondutor = courierObj.phone || updatedOrder.dispositivoCondutor || '';
+      }
     } else {
       updatedOrder.valorCondutor = 0;
+      if (req.body.courierId === null || req.body.courierId === '') {
+        updatedOrder.courierName = null;
+        updatedOrder.allocatedCourierName = null;
+        updatedOrder.nomeCondutor = null;
+        updatedOrder.dispositivoCondutor = '';
+      }
     }
 
     updatedOrder.valorEntrega = calculateFreight(updatedOrder, db);
@@ -7394,6 +7407,246 @@ app.get('/api/github/status', (req, res) => {
   }
 
   res.json(db.githubConnection || { connected: false });
+});
+
+// ================= AUTO-DEPLOY (GitHub -> build -> restart automático) =================
+const AUTO_DEPLOY_STATE: any = { running: false, lastRunAt: null, lastResult: null, pendingRestartAt: 0 };
+let updateCheckCache: any = null;
+
+function getAutoDeployEnabled(): boolean {
+  try {
+    const db2 = loadDB();
+    return db2.autoDeploy ? db2.autoDeploy.enabled !== false : true;
+  } catch (e) { return true; }
+}
+
+function setAutoDeployEnabled(enabled: boolean) {
+  const db2 = loadDB();
+  db2.autoDeploy = { ...(db2.autoDeploy || {}), enabled, updatedAt: new Date().toISOString() };
+  saveDB(db2);
+}
+
+function logAutoDeploy(line: string) {
+  console.log(`[Auto-Deploy] ${line}`);
+  try {
+    fs.appendFileSync(path.join(process.cwd(), 'src', 'auto-deploy.log'), `${new Date().toISOString()} ${line}\n`);
+  } catch (e) {}
+}
+
+async function runAutoDeploy(source: string, opts?: { forceBuild?: boolean }) {
+  const forceBuild = !!opts?.forceBuild;
+  if (AUTO_DEPLOY_STATE.running) {
+    return { success: false, error: 'Auto-deploy já em execução.' };
+  }
+  if (!getAutoDeployEnabled() && source !== 'manual' && source !== 'afterPush') {
+    return { success: false, error: 'Auto-deploy desativado.' };
+  }
+  if (Date.now() - AUTO_DEPLOY_STATE.pendingRestartAt < 60_000) {
+    logAutoDeploy(`[${source}] Ignorado (janela anti-loop de 60s).`);
+    return { success: false, error: 'anti-loop' };
+  }
+  AUTO_DEPLOY_STATE.running = true;
+  AUTO_DEPLOY_STATE.lastRunAt = new Date().toISOString();
+  const repo = `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`;
+  const result: any = { source, at: AUTO_DEPLOY_STATE.lastRunAt };
+  logAutoDeploy(`[${source}] Verificando ${repo} (branch main)...`);
+  try {
+    try {
+      execSync('git fetch origin main', { cwd: process.cwd(), stdio: 'pipe', timeout: 60_000 });
+    } catch (fetchErr: any) {
+      try {
+        const remoteUrl = `https://github.com/${repo}.git`;
+        try { execSync('git remote remove origin', { cwd: process.cwd(), stdio: 'ignore' }); } catch {}
+        execSync(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), stdio: 'ignore' });
+        execSync('git fetch origin main', { cwd: process.cwd(), stdio: 'pipe', timeout: 60_000 });
+      } catch (fetchErr2: any) {
+        throw new Error(`Falha ao buscar GitHub: ${String((fetchErr2 && fetchErr2.message) || fetchErr2).split('\n')[0]}`);
+      }
+    }
+    let remoteSha = '';
+    try { remoteSha = execSync('git rev-parse origin/main', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim(); } catch (e) {}
+    let localSha = '';
+    try { localSha = execSync('git rev-parse HEAD', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim(); } catch (e) {}
+    result.remoteSha = remoteSha;
+    result.localSha = localSha;
+    if (remoteSha && remoteSha === localSha && !forceBuild) {
+      logAutoDeploy(`[${source}] Sem atualizações (${localSha.slice(0, 7)}).`);
+      result.success = true;
+      result.upToDate = true;
+      AUTO_DEPLOY_STATE.lastResult = result;
+      return result;
+    }
+    try {
+      const dirty = execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim();
+      if (dirty) {
+        execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' });
+        execSync(`git commit -m "chore: snapshot auto-deploy ${new Date().toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: 'pipe' });
+        logAutoDeploy('Snapshot local criado (mudanças preservadas no git).');
+      }
+    } catch (e) {}
+    if (remoteSha && remoteSha !== localSha) {
+      logAutoDeploy(`[${source}] Atualizando ${localSha ? localSha.slice(0, 7) : '?'} -> ${remoteSha.slice(0, 7)}...`);
+      execSync('git reset --hard origin/main', { cwd: process.cwd(), stdio: 'pipe' });
+      result.updated = true;
+    } else {
+      logAutoDeploy(`[${source}] Build forçado do código atual (${(localSha || '').slice(0, 7)}).`);
+      result.updated = false;
+    }
+    logAutoDeploy(`[${source}] Executando npm run build...`);
+    try {
+      execSync('npm run build', { cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe', timeout: 600_000, maxBuffer: 50 * 1024 * 1024 });
+      result.buildOk = true;
+    } catch (buildErr: any) {
+      result.buildOk = false;
+      result.buildError = String((buildErr && buildErr.message) || buildErr).split('\n')[0];
+      logAutoDeploy(`FALHA no build: ${result.buildError}`);
+      AUTO_DEPLOY_STATE.lastResult = result;
+      return result;
+    }
+    result.restarting = true;
+    result.commitApplied = (remoteSha || localSha || '').slice(0, 7);
+    AUTO_DEPLOY_STATE.pendingRestartAt = Date.now();
+    AUTO_DEPLOY_STATE.lastResult = result;
+    logAutoDeploy(`[${source}] Build OK. Reiniciando servidor para aplicar ${result.commitApplied} em ~2s...`);
+    setTimeout(() => { try { process.exit(1); } catch (e) {} }, 2000);
+    return result;
+  } catch (err: any) {
+    result.success = false;
+    result.error = String((err && err.message) || err).split('\n')[0];
+    logAutoDeploy(`ERRO: ${result.error}`);
+    AUTO_DEPLOY_STATE.lastResult = result;
+    return result;
+  } finally {
+    AUTO_DEPLOY_STATE.running = false;
+  }
+}
+
+function scheduleAutoDeploy(source: string, opts?: { forceBuild?: boolean }) {
+  if (AUTO_DEPLOY_STATE.running) return;
+  setTimeout(() => { runAutoDeploy(source, opts).catch(() => {}); }, source === 'webhook' ? 1500 : 100);
+}
+
+app.get('/api/auto-deploy/status', (req, res) => {
+  const db2 = loadDB();
+  res.json({
+    enabled: db2.autoDeploy ? db2.autoDeploy.enabled !== false : true,
+    running: AUTO_DEPLOY_STATE.running,
+    lastRunAt: AUTO_DEPLOY_STATE.lastRunAt,
+    lastResult: AUTO_DEPLOY_STATE.lastResult,
+    repo: `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`,
+    branch: 'main',
+    pollIntervalSec: 300
+  });
+});
+
+app.post('/api/auto-deploy/trigger', async (req, res) => {
+  const action = (req.body && req.body.action) || null;
+  try {
+    if (action === 'enable') {
+      setAutoDeployEnabled(true);
+      logAutoDeploy('Auto-deploy ATIVADO pelo painel.');
+      return res.json({ success: true, enabled: true });
+    }
+    if (action === 'disable') {
+      setAutoDeployEnabled(false);
+      logAutoDeploy('Auto-deploy DESATIVADO pelo painel.');
+      return res.json({ success: true, enabled: false });
+    }
+    if (action === 'run') {
+      const r = await runAutoDeploy('manual', { forceBuild: true });
+      return res.json({ success: !!r.success, result: r });
+    }
+    return res.status(400).json({ success: false, error: 'Ação inválida. Use: enable | disable | run' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: String((err && err.message) || err) });
+  }
+});
+
+app.get('/api/update-check', async (req, res) => {
+  const distPath = path.join(process.cwd(), 'dist');
+  const repo = `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`;
+  let currentCommit = '';
+  try { currentCommit = execSync('git rev-parse HEAD', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
+  let currentBuild: string | null = null;
+  try { currentBuild = fs.statSync(path.join(distPath, 'index.html')).mtime.toISOString(); } catch (_) {}
+  let latest: any = null;
+  let status = 'ok';
+  const now = Date.now();
+  if (updateCheckCache && now - updateCheckCache.at < 5 * 60 * 1000) {
+    latest = updateCheckCache.latest;
+    status = 'cached';
+  } else {
+    try {
+      const headers: any = { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'ViniMap-Update-Checker' };
+      const pat = process.env.GITHUB_PAT || '';
+      if (pat) headers['Authorization'] = `Bearer ${pat}`;
+      const ghRes = await fetch(`https://api.github.com/repos/${repo}/commits/main`, { headers });
+      if (ghRes.ok) {
+        const d = await ghRes.json();
+        latest = {
+          sha: d.sha || '',
+          short: d.sha ? d.sha.slice(0, 7) : '',
+          message: (d.commit && d.commit.message ? d.commit.message.split('\n')[0] : '') || '',
+          date: (d.commit && (d.commit.committer && d.commit.committer.date || d.commit.author && d.commit.author.date)) || null,
+          url: d.html_url || `https://github.com/${repo}/commit/${d.sha || ''}`
+        };
+        updateCheckCache = { at: now, latest, status: 'ok' };
+        status = 'ok';
+      } else if (ghRes.status === 403 || ghRes.status === 429) {
+        status = 'rate_limited';
+      } else {
+        status = `error_${ghRes.status}`;
+      }
+    } catch (err) {
+      status = 'network_error';
+    }
+  }
+  let hasUpdate = false;
+  let reason = '';
+  if (latest) {
+    if (currentCommit) {
+      hasUpdate = latest.sha !== currentCommit;
+      reason = hasUpdate ? `GitHub main está no commit ${latest.short}, mas o deploy roda o commit ${currentCommit.slice(0, 7)}.` : 'Deploy em dia com o GitHub.';
+    } else if (currentBuild && latest.date) {
+      hasUpdate = new Date(latest.date).getTime() > new Date(currentBuild).getTime();
+      reason = hasUpdate ? 'Último commit do GitHub é mais novo que o build em execução.' : 'Deploy em dia com o GitHub.';
+    }
+  }
+  res.json({
+    repo,
+    branch: 'main',
+    hasUpdate,
+    reason,
+    status,
+    current: { commit: currentCommit ? currentCommit.slice(0, 7) : null, build: currentBuild },
+    latest,
+    checkedAt: new Date().toISOString()
+  });
+});
+
+app.get('/api/deploy-info', (req, res) => {
+  const distPath = path.join(process.cwd(), 'dist');
+  let commit = '';
+  let commitDate = '';
+  let commitMessage = '';
+  try { commit = execSync('git rev-parse --short HEAD', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
+  try { commitDate = execSync('git log -1 --format=%cI', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
+  try { commitMessage = execSync('git log -1 --format=%s', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
+  let serverBuildTime: string | null = null;
+  let frontendBuildTime: string | null = null;
+  try { serverBuildTime = fs.statSync(path.join(distPath, 'server.cjs')).mtime.toISOString(); } catch (_) {}
+  try { frontendBuildTime = fs.statSync(path.join(distPath, 'index.html')).mtime.toISOString(); } catch (_) {}
+  res.json({
+    app: 'VMAPSACF - ViniMap Fleet',
+    repo: `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`,
+    branch: 'main',
+    commit: commit || null,
+    commitDate: commitDate || null,
+    commitMessage: commitMessage || null,
+    build: { serverCjs: serverBuildTime, frontend: frontendBuildTime },
+    uptimeSeconds: Math.round(process.uptime()),
+    now: new Date().toISOString()
+  });
 });
 
 app.post('/api/github/save-config', (req, res) => {

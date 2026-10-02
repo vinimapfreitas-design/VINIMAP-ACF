@@ -135,19 +135,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
   };
 
+  const findCourierMatch = (target: string, list: Courier[]) => {
+    if (!target) return undefined;
+    const cleanDigits = target.replace(/\D/g, '');
+    const cleanTargetLower = target.trim().toLowerCase();
+    return list.find(c => {
+      if (c.id && c.id.toLowerCase() === cleanTargetLower) return true;
+      const cClean = String(c.phone || '').replace(/\D/g, '');
+      if (cleanDigits && cClean) {
+        if (cClean === cleanDigits) return true;
+        if (cleanDigits.length >= 8 && (cClean.endsWith(cleanDigits) || cleanDigits.endsWith(cClean))) return true;
+      }
+      return false;
+    });
+  };
+
   // Driver login states - Phone / Identification and Password
   const [driverPhoneInput, setDriverPhoneInput] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const urlDriverId = params.get('driverId') || params.get('courierId') || params.get('phone');
       if (urlDriverId) {
-        const match = initialCouriers.find(c => c.id === urlDriverId || c.phone === urlDriverId);
+        const match = findCourierMatch(urlDriverId, initialCouriers);
         if (match && match.phone) return formatPhone(match.phone);
         return formatPhone(urlDriverId);
       }
     }
     if (initialDriverId) {
-      const match = initialCouriers.find(c => c.id === initialDriverId || c.phone === initialDriverId);
+      const match = findCourierMatch(initialDriverId, initialCouriers);
       if (match && match.phone) return formatPhone(match.phone);
       return formatPhone(initialDriverId);
     }
@@ -179,7 +194,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       : initialDriverId;
 
     if (targetParam && localCouriers.length > 0) {
-      const match = localCouriers.find(c => c.id === targetParam || c.phone === targetParam);
+      const match = findCourierMatch(targetParam, localCouriers);
       if (match && match.phone && (!driverPhoneInput || driverPhoneInput === targetParam)) {
         setDriverPhoneInput(formatPhone(match.phone));
       }

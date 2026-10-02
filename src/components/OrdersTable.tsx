@@ -108,6 +108,7 @@ interface OrdersTableProps {
   setSelectedCourierId?: (id: string | null) => void;
   onDateFilterChange?: (enabled: boolean, startDate: string, endDate: string) => void;
   statusFilter?: OrderStatus | 'all' | 'open';
+  onStatusFilterChange?: (status: OrderStatus | 'all' | 'open') => void;
   selectedPartnerId?: string;
   onSelectPartner?: (partnerId: string) => void;
   onRefetchDatabase?: (options?: { startDate?: string; endDate?: string; loadAll?: boolean }) => Promise<void> | void;
@@ -146,6 +147,7 @@ export default function OrdersTable({
   onSelectPartner,
   onDateFilterChange,
   statusFilter,
+  onStatusFilterChange,
   onRefetchDatabase,
   isSyncing = false,
   onLoadPeriod,
@@ -1166,19 +1168,30 @@ export default function OrdersTable({
     };
   }, [orders, partnerClients]);
 
-  // Helper to determine if an order matches the selected period by launch date or allocation date
+  // Helper to determine if an order matches the selected period by launch date, allocation date, or status transition date
   const isWithinDatePeriod = (item: any, startDate: string, endDate: string): boolean => {
-    if (!item.launchDateISO && !item.allocatedDateISO) return false;
-    // Na data atual do dia ("Hoje"), exibir pedidos lançados no dia OU alocados para entrega no dia.
-    // Os pedidos de dias anteriores entram na lista se o seletor de datas estiver correspondente ou se estiverem alocados hoje.
+    if (!item.launchDateISO && !item.allocatedDateISO && !item.transitionDates?.delivered) return false;
+    // Na data atual do dia ("Hoje"), exibir pedidos lançados no dia OU alocados para entrega no dia OU entregues hoje.
     const today = getTodayISO();
     if (startDate === today && endDate === today) {
-      return item.launchDateISO === today || item.allocatedDateISO === today;
+      const isLaunchToday = item.launchDateISO === today;
+      const isAllocToday = item.allocatedDateISO === today;
+      const isDeliveredToday = item.order.status === 'delivered' && item.transitionDates?.delivered === today;
+      return isLaunchToday || isAllocToday || isDeliveredToday;
     }
     // Caso um período customizado ou com múltiplos dias seja selecionado:
     const launchInRange = item.launchDateISO ? (item.launchDateISO >= startDate && item.launchDateISO <= endDate) : false;
     const allocInRange = item.allocatedDateISO ? (item.allocatedDateISO >= startDate && item.allocatedDateISO <= endDate) : false;
-    return launchInRange || allocInRange;
+    const deliveredInRange = (item.order.status === 'delivered' && item.transitionDates?.delivered)
+      ? (item.transitionDates.delivered >= startDate && item.transitionDates.delivered <= endDate)
+      : false;
+    const failureInRange = (item.order.status === 'failure' && item.transitionDates?.failure)
+      ? (item.transitionDates.failure >= startDate && item.transitionDates.failure <= endDate)
+      : false;
+    const cancelledInRange = (item.order.status === 'cancelled' && item.transitionDates?.cancelled)
+      ? (item.transitionDates.cancelled >= startDate && item.transitionDates.cancelled <= endDate)
+      : false;
+    return launchInRange || allocInRange || deliveredInRange || failureInRange || cancelledInRange;
   };
 
   // Orders strictly within the selected period to power the synchronized count badges
@@ -1442,15 +1455,8 @@ export default function OrdersTable({
         }
       }
 
-      // 3. Smart Date Range filter (respects launch date, status transition, and allocated date)
-      // Se o operador está realizando uma busca explícita por termo (ex: nome, pedido, danfe, CEP ou ID), não ocultar o resultado pelo período
-      const isExplicitTextSearch = Boolean(
-        qSearch || 
-        qCep || 
-        (isDetailedSearchOpen && (idsList.length > 0 || qDanfe || qPedido || qCustomerName || qCity))
-      );
-
-      if (enableDateFilter && !isExplicitTextSearch) {
+      // 3. Smart Date Range filter: Toda pesquisa por período DEVE respeitar o filtro de período escolhido
+      if (enableDateFilter) {
         if (!isWithinDatePeriod(item, startDateFil, endDateFil)) {
           continue;
         }
@@ -2770,7 +2776,9 @@ export default function OrdersTable({
               id="search-status-select"
               value={activeTab}
               onChange={(e) => {
-                setActiveTab(e.target.value);
+                const val = e.target.value as OrderStatus | 'all' | 'open';
+                setActiveTab(val);
+                onStatusFilterChange?.(val);
                 setCurrentPage(1);
               }}
               className="w-full pl-9 pr-7 h-10 bg-white border border-slate-200 hover:border-emerald-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 rounded-xl text-xs font-bold text-slate-700 transition-all shadow-2xs cursor-pointer appearance-none truncate"

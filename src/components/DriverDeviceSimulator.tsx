@@ -242,20 +242,22 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
     return isStandalone ? null : (couriers.length > 0 ? couriers[0] : null);
   }, [couriers, standaloneCourierId, selectedDriverId, isStandalone]);
 
-  // Synchronize default driver selection when couriers load
+  // Synchronize default driver selection when couriers load without erratic order-based flipping
   useEffect(() => {
     if (!isStandalone && couriers.length > 0) {
-      if (!selectedDriverId || !couriers.some(c => c.id === selectedDriverId || c.phone === selectedDriverId)) {
-        // If an order has a courier assigned, prioritize that courier for instant preview
-        const firstActiveCourierId = orders.find(o => o.courierId && o.status !== 'cancelled')?.courierId;
-        const targetId = firstActiveCourierId && couriers.some(c => c.id === firstActiveCourierId)
-          ? firstActiveCourierId
-          : couriers[0].id;
+      const cleanSelected = String(selectedDriverId || '').replace(/\D/g, '');
+      const isAlreadyValid = couriers.some(c => {
+        const cPhoneClean = String(c.phone || '').replace(/\D/g, '');
+        return c.id === selectedDriverId || (cleanSelected && cPhoneClean && cleanSelected === cPhoneClean);
+      });
+
+      if (!selectedDriverId || !isAlreadyValid) {
+        const targetId = couriers[0].id;
         setSelectedDriverId(targetId);
         localStorage.setItem('vinimap_driver_id', targetId);
       }
     }
-  }, [couriers, isStandalone, selectedDriverId, orders]);
+  }, [couriers, isStandalone, selectedDriverId]);
 
   // Single-session check (Rule: Driver cannot be logged in on 2 devices simultaneously; Exception: Simulator inside system)
   useEffect(() => {
@@ -462,14 +464,14 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
         const d = String(targetCourier.phone).replace(/\D/g, '');
         if (d.length >= 8) validPhones.add(d);
       }
-    }
-
-    if (selectedDriverId) {
-      validIds.add(String(selectedDriverId).trim().toLowerCase());
-    }
-
-    if (standaloneCourierId) {
+    } else if (standaloneCourierId) {
       validIds.add(String(standaloneCourierId).trim().toLowerCase());
+      const stDigits = String(standaloneCourierId).replace(/\D/g, '');
+      if (stDigits.length >= 8) validPhones.add(stDigits);
+    } else if (selectedDriverId) {
+      validIds.add(String(selectedDriverId).trim().toLowerCase());
+      const sDigits = String(selectedDriverId).replace(/\D/g, '');
+      if (sDigits.length >= 8) validPhones.add(sDigits);
     }
 
     // 1. Primary and definitive check: exact courier ID match
@@ -796,7 +798,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
 
           {/* Active Driver Selector (Crisp Pure White Card with Large Fonts) */}
           <div className="bg-white p-3.5 rounded-2xl border-2 border-slate-300 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3 overflow-hidden">
                 <img
                   src={selectedCourier?.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'}
@@ -804,7 +806,12 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   className="w-12 h-12 rounded-full object-cover border-2 border-emerald-500 shrink-0 shadow-sm"
                 />
                 <div className="truncate">
-                  <span className="text-xs text-slate-500 font-black uppercase tracking-wider block">Condutor Conectado</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-black uppercase tracking-wider block">Condutor Conectado</span>
+                    {!isStandalone && (
+                      <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded">Simulador</span>
+                    )}
+                  </div>
                   <div>
                     <h4 className="font-black text-base sm:text-lg text-slate-900 truncate">
                       {selectedCourier?.name || 'Condutor Conectado'}
@@ -818,7 +825,24 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                 </div>
               </div>
 
-              <div className="text-right shrink-0">
+              <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
+                {!isStandalone && couriers.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <label className="text-[10px] text-slate-500 font-bold uppercase hidden md:inline">Condutor:</label>
+                    <select
+                      value={selectedCourier?.id || selectedDriverId}
+                      onChange={(e) => handleSelectDriver(e.target.value)}
+                      className="text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border-2 border-slate-300 rounded-xl px-2.5 py-1.5 focus:outline-none cursor-pointer shadow-xs"
+                      title="Selecionar qual condutor simular na tela"
+                    >
+                      {couriers.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.phone || c.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <span className="text-sm font-black bg-blue-50 text-blue-900 border border-blue-200 px-3 py-1.5 rounded-full shadow-xs">
                   {deliveredCount}/{totalAssigned} Entregas
                 </span>

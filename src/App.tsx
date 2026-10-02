@@ -72,7 +72,7 @@ import DiaryTab from './components/DiaryTab';
 import LoginScreen from './components/LoginScreen';
 import AppShareModal from './components/AppShareModal';
 import { registerPushNotifications, onMessageReceived } from './lib/pushNotifications';
-import { collection, getDocs, doc, setDoc as firestoreSetDoc, deleteDoc as firestoreDeleteDoc, updateDoc as firestoreUpdateDoc, onSnapshot, query, where, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc as firestoreSetDoc, deleteDoc as firestoreDeleteDoc, updateDoc as firestoreUpdateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import { db, isFirebaseConfigured, isLiveFirebase, OperationType, handleFirestoreError, isFirestoreQuotaExceeded, onFirestoreQuotaExceeded } from './lib/firebase';
 import OperatorsTab from './components/OperatorsTab';
 import HubsTab from './components/HubsTab';
@@ -310,6 +310,10 @@ export const isDriverMatchingSession = (driverUser: any, searchParams: URLSearch
   const urlId = searchParams.get('driverId') || searchParams.get('courierId');
   const urlPhone = searchParams.get('phone');
   
+  const hasToken = Boolean(typeof window !== 'undefined' && window.localStorage.getItem('vinimap_driver_session_token'));
+  if (!hasToken) return false;
+
+  // If no driver specified in URL, existing valid driver session is accepted
   if (!urlId && !urlPhone) return true;
 
   const userCleanPhone = String(driverUser.phone || driverUser.login || '').replace(/\D/g, '');
@@ -325,10 +329,8 @@ export const isDriverMatchingSession = (driverUser: any, searchParams: URLSearch
   if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 8 && (userCleanPhone === urlIdCleanPhone || userCleanPhone.endsWith(urlIdCleanPhone) || urlIdCleanPhone.endsWith(userCleanPhone))) {
     return true;
   }
-  const hasToken = Boolean(typeof window !== 'undefined' && window.localStorage.getItem('vinimap_driver_session_token'));
-  if (hasToken && driverUser.id) {
-    return true;
-  }
+  
+  // URL explicitly required a specific driver, but current session is for a different driver -> DO NOT MATCH!
   return false;
 };
 
@@ -1110,6 +1112,19 @@ const markOrderAsDeleted = (orderId: string) => {
         resolvedCourierId = local.courierId;
       }
 
+      // Guarantee that resolvedDispositivo and resolvedCourierName strictly match resolvedCourierId
+      if (resolvedCourierId) {
+        const matchingCourier = couriers.find(c => c.id === resolvedCourierId);
+        if (matchingCourier) {
+          if (!resolvedDispositivo || (matchingCourier.phone && resolvedDispositivo !== matchingCourier.phone)) {
+            resolvedDispositivo = matchingCourier.phone || resolvedDispositivo;
+          }
+          if (!resolvedCourierName || (matchingCourier.name && resolvedCourierName !== matchingCourier.name)) {
+            resolvedCourierName = matchingCourier.name || resolvedCourierName;
+          }
+        }
+      }
+
       let resolved: Order;
 
       // 1. If local is delivered and incoming is not yet delivered, preserve local delivered
@@ -1614,10 +1629,12 @@ const markOrderAsDeleted = (orderId: string) => {
     console.log("[Firestore Sync] Ativando ouvintes em tempo real para Firestore...");
 
     let isDetached = false;
-    // Optimize Firestore reads: listen only to active orders to avoid pulling all historical orders on start
+    // Optimize Firestore reads: listen to recently-updated orders across ALL statuses
+    // (including 'delivered'/'cancelled') so driver status changes reflect in the admin panel
     const activeOrdersQuery = query(
       collection(db, 'orders'),
-      where('status', 'in', ['pending', 'in_progress', 'in_route', 'failure'])
+      orderBy('versionTimestamp', 'desc'),
+      limit(300)
     );
     const unsubscribeOrders = onSnapshot(activeOrdersQuery, (snapshot) => {
       if (isDetached) return;
@@ -1831,6 +1848,24 @@ const markOrderAsDeleted = (orderId: string) => {
       unsubscribeFCM();
     };
   }, []);
+
+  // Polling de contingência (independente do Firestore): mantém o painel do ADM
+  // sincronizado com o servidor mesmo quando o Firestore está com cota esgotada.
+  // Atualiza pedidos ativos/de hoje a cada 30s e o histórico completo a cada 5min.
+  useEffect(() => {
+    const pollFast = setInterval(() => {
+      fetchDatabase(false, { initialOnly: true }).catch(() => {});
+    }, 30 * 1000);
+    const pollFull = setInterval(() => {
+      if (isFullHistoryLoaded) {
+        fetchDatabase(false, { loadAll: true }).catch(() => {});
+      }
+    }, 5 * 60 * 1000);
+    return () => {
+      clearInterval(pollFast);
+      clearInterval(pollFull);
+    };
+  }, [isFullHistoryLoaded]);
 
   // Lazy load orders for a specific date range when selected by the administrator
   const lazyLoadPeriod = async (startDate: string, endDate: string) => {
@@ -3164,6 +3199,11 @@ const markOrderAsDeleted = (orderId: string) => {
         return updated;
       });
 
+      // Synchronize active preview driver in simulator to this newly allocated courier
+      try {
+        localStorage.setItem('vinimap_driver_id', cleanCourierId);
+      } catch (_) {}
+
       setCouriers(prev => {
         const updated = prev.map(c => {
           if (c.id === cleanCourierId) return { ...c, status: 'busy' as any };
@@ -3198,6 +3238,9 @@ const markOrderAsDeleted = (orderId: string) => {
         body: JSON.stringify({ 
           courierId: cleanCourierId, 
           dispositivoCondutor: assignedCourier?.phone || '',
+          courierName: assignedCourier?.name || '',
+          allocatedCourierName: assignedCourier?.name || '',
+          nomeCondutor: assignedCourier?.name || '',
           valorCondutor: ruleRate, 
           status: 'pending',
           versionTimestamp: nowTimestamp,
