@@ -1,0 +1,155 @@
+{
+  "entities": {
+    "orders": {
+      "title": "Pedidos de Entrega",
+      "description": "Pedidos de frete e entregas do sistema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cliente": { "type": "string" },
+        "customerName": { "type": "string" },
+        "address": { "type": "string" },
+        "bairro": { "type": "string" },
+        "cidade": { "type": "string" },
+        "uf": { "type": "string" },
+        "cep": { "type": "string" },
+        "region": { "type": "string" },
+        "value": { "type": "number" },
+        "valorCondutor": { "type": "number" },
+        "status": { "type": "string" },
+        "statusText": { "type": "string" },
+        "courierId": { "type": "string" },
+        "courierName": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "dataSolicitacao": { "type": "string" }
+      }
+    },
+    "couriers": {
+      "title": "Condutores e Motoristas",
+      "description": "Cadastro da frota de entregadores",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "vehicle": { "type": "string" },
+        "region": { "type": "string" },
+        "status": { "type": "string" },
+        "currentLat": { "type": "number" },
+        "currentLng": { "type": "number" }
+      }
+    },
+    "financeTransactions": {
+      "title": "Transações Financeiras",
+      "description": "Lançamentos de receitas e despesas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "partnerClients": {
+      "title": "Parceiros e Embarcadores",
+      "description": "Cadastro de empresas clientes parceiras",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "cnpjCpf": { "type": "string" },
+        "codigoCliente": { "type": "string" },
+        "phone": { "type": "string" }
+      }
+    },
+    "freightRules": {
+      "title": "Regras de Frete",
+      "description": "Tabela de precificação de fretes por CEP e região",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "partnerId": { "type": "string" },
+        "cepMin": { "type": "string" },
+        "cepMax": { "type": "string" },
+        "value": { "type": "number" },
+        "valorRepasse": { "type": "number" },
+        "regiao": { "type": "string" }
+      }
+    },
+    "operators": {
+      "title": "Operadores do Sistema",
+      "description": "Usuários administrativos e operadores do painel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "login": { "type": "string" },
+        "role": { "type": "string" }
+      }
+    },
+    "hubs": {
+      "title": "Hubs e Bases de Distribuição",
+      "description": "Centros de distribuição física e pontos de partida",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "cep": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      }
+    },
+    "activities": {
+      "title": "Logs e Atividades",
+      "description": "Histórico de auditoria e movimentações",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "type": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/orders/{orderId}": {
+      "schema": "orders",
+      "description": "Coleção de pedidos e entregas"
+    },
+    "/couriers/{courierId}": {
+      "schema": "couriers",
+      "description": "Coleção de condutores e entregadores"
+    },
+    "/activities/{activityId}": {
+      "schema": "activities",
+      "description": "Coleção de logs de atividades"
+    },
+    "/partnerClients/{partnerId}": {
+      "schema": "partnerClients",
+      "description": "Coleção de clientes parceiros"
+    },
+    "/freightRules/{ruleId}": {
+      "schema": "freightRules",
+      "description": "Coleção de regras de frete"
+    },
+    "/operators/{operatorId}": {
+      "schema": "operators",
+      "description": "Coleção de operadores de sistema"
+    },
+    "/hubs/{hubId}": {
+      "schema": "hubs",
+      "description": "Coleção de hubs e bases operacionais"
+    },
+    "/financeTransactions/{transactionId}": {
+      "schema": "financeTransactions",
+      "description": "Coleção de transações financeiras"
+    }
+  }
+}
