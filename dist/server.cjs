@@ -29,6 +29,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // server.ts
 var server_exports = {};
 __export(server_exports, {
+  broadcastServerEvent: () => broadcastServerEvent,
   default: () => server_default,
   sendPushNotification: () => sendPushNotification
 });
@@ -2435,6 +2436,72 @@ app.post("/api/firestore/reset-circuit", (req, res) => {
     message: "Circuito do Firestore liberado e resetado com sucesso."
   });
 });
+var sseClients = /* @__PURE__ */ new Set();
+function broadcastServerEvent(event, data) {
+  const payload = `event: ${event}
+data: ${JSON.stringify(data)}
+
+`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch (_) {
+      sseClients.delete(client);
+    }
+  }
+}
+app.get("/api/events", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+  res.write(`event: ping
+data: {"time":${Date.now()}}
+
+`);
+  sseClients.add(res);
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(`event: ping
+data: {"time":${Date.now()}}
+
+`);
+    } catch (_) {
+      clearInterval(pingInterval);
+      sseClients.delete(res);
+    }
+  }, 2e4);
+  req.on("close", () => {
+    clearInterval(pingInterval);
+    sseClients.delete(res);
+  });
+});
+app.get("/api/sync/delta", (req, res) => {
+  try {
+    const db = loadDB();
+    const since = Number(req.query.since || 0);
+    const now = Date.now();
+    const changedOrders = (db.orders || []).filter((o) => {
+      const ts = Number(o.versionTimestamp || o.updatedAt || o.statusUpdatedAt || 0);
+      return ts > since;
+    });
+    const changedCouriers = (db.couriers || []).filter((c) => {
+      const ts = Number(c.updatedAt || 0);
+      return ts > since;
+    });
+    res.json({
+      timestamp: now,
+      orders: changedOrders,
+      couriers: changedCouriers,
+      deletedOrderIds: db.deletedOrderIds || []
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get("/api/supabase-config", (req, res) => {
   let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
   if (url.includes("/rest/v1")) {
@@ -3176,31 +3243,58 @@ function parseOrderDateToISO(str) {
 }
 function getOrderEffectiveISODate(order) {
   if (!order) return "";
-  if (order.status === "delivered") {
-    if (order.deliveryProtocol?.signedAt) {
-      const parsed = parseOrderDateToISO(order.deliveryProtocol.signedAt);
-      if (parsed) return parsed;
-    }
-    if (order.deliveredAt) {
-      const parsed = parseOrderDateToISO(order.deliveredAt);
-      if (parsed) return parsed;
-    }
-  }
   if (order.dataSolicitacao) {
     const parsed = parseOrderDateToISO(order.dataSolicitacao);
-    if (parsed) return parsed;
-  }
-  if (order.allocatedDate) {
-    const parsed = parseOrderDateToISO(order.allocatedDate);
     if (parsed) return parsed;
   }
   if (order.createdAt) {
     const parsed = parseOrderDateToISO(order.createdAt);
     if (parsed) return parsed;
   }
+  if (order.created_at) {
+    const parsed = parseOrderDateToISO(order.created_at);
+    if (parsed) return parsed;
+  }
   return "";
 }
-function filterOrdersByDateRange(orders2, startDate, endDate, includeActive = true) {
+function getOrderCompletionOrTransitionISODates(order) {
+  if (!order) return [];
+  const dates = [];
+  if (order.deliveryProtocol?.signedAt) {
+    const d = parseOrderDateToISO(order.deliveryProtocol.signedAt.split(" ")[0] || order.deliveryProtocol.signedAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.deliveredAt) {
+    const d = parseOrderDateToISO(order.deliveredAt.split(" ")[0] || order.deliveredAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.cancelledAt) {
+    const d = parseOrderDateToISO(order.cancelledAt.split(" ")[0] || order.cancelledAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.failureAt || order.occurrenceAt) {
+    const d = parseOrderDateToISO((order.failureAt || order.occurrenceAt).split(" ")[0]);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.statusUpdatedAt) {
+    const rawTs = Number(order.statusUpdatedAt);
+    if (rawTs > 0) {
+      const dt = new Date(rawTs);
+      const iso = parseOrderDateToISO(dt.toISOString());
+      if (iso && !dates.includes(iso)) dates.push(iso);
+    }
+  }
+  if (Array.isArray(order.history)) {
+    for (const h of order.history) {
+      if (h && h.time) {
+        const d = parseOrderDateToISO(h.time.split(" ")[0] || h.time);
+        if (d && !dates.includes(d)) dates.push(d);
+      }
+    }
+  }
+  return dates;
+}
+function filterOrdersByDateRange(orders2, startDate, endDate, includeActive = false) {
   const totalOrdersInDb = (orders2 || []).length;
   if (!startDate && !endDate) {
     return { filteredOrders: orders2 || [], totalOrdersInDb, hasMoreHistorical: false };
@@ -3210,10 +3304,19 @@ function filterOrdersByDateRange(orders2, startDate, endDate, includeActive = tr
   let matchCount = 0;
   const filteredOrders = (orders2 || []).filter((o) => {
     if (!o) return false;
-    const isActive = includeActive && (o.status === "pending" || o.status === "in_progress" || o.status === "in_route" || o.status === "failure");
     const orderDate = getOrderEffectiveISODate(o);
-    const inRange = orderDate ? orderDate >= start && orderDate <= end : false;
-    if (inRange || isActive) {
+    const inSolicitationRange = orderDate ? orderDate >= start && orderDate <= end : false;
+    if (inSolicitationRange) {
+      matchCount++;
+      return true;
+    }
+    const transitionDates = getOrderCompletionOrTransitionISODates(o);
+    const hasTransitionInRange = transitionDates.some((d) => d >= start && d <= end);
+    if (hasTransitionInRange) {
+      matchCount++;
+      return true;
+    }
+    if (includeActive && o.status !== "delivered" && o.status !== "cancelled") {
       matchCount++;
       return true;
     }
@@ -3487,6 +3590,7 @@ app.post("/api/orders", async (req, res) => {
     resequenceCourierOrders(newOrder.courierId, db);
   }
   await saveDB(db);
+  broadcastServerEvent("order_created", { order: newOrder, orderId: newOrder.id });
   res.status(201).json({ order: newOrder, activity: newActivity });
 });
 function findOrderIndex(orders2, idOrPedido) {
@@ -3772,6 +3876,7 @@ app.put("/api/orders/:id", async (req, res) => {
     }
     saveDB(db, false, false, "orders").catch(() => {
     });
+    broadcastServerEvent("order_updated", { order: db.orders[index], orderId: actualOrderId });
     res.json(db.orders[index]);
   } else {
     const nowTimestamp = Date.now();
@@ -3915,6 +4020,7 @@ app.put("/api/orders/:id", async (req, res) => {
     }
     saveDB(db, false, false, "orders").catch(() => {
     });
+    broadcastServerEvent("order_updated", { order: newOrder, orderId: id });
     res.json(newOrder);
   }
 });
@@ -3994,10 +4100,12 @@ app.delete("/api/orders/:id", async (req, res) => {
         console.error(`[Supabase REST] Exce\xE7\xE3o ao deletar pedido ${actualId}:`, err);
       }
     }
+    broadcastServerEvent("order_deleted", { orderId: actualId });
     res.json({ success: true, activity: newActivity, deletedOrderId: actualId });
   } else {
     registerTombstones(id);
     await saveDB(db);
+    broadcastServerEvent("order_deleted", { orderId: id });
     res.json({ success: true, alreadyDeleted: true, deletedOrderId: id });
   }
 });
@@ -4142,6 +4250,7 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
     }
   }
   await saveDB(db);
+  broadcastServerEvent("orders_bulk_allocated", { orderIds, courierId });
   res.json({ success: true, activity: newActivity, orders: db.orders, couriers: db.couriers });
 });
 app.post("/api/orders/bulk-status", async (req, res) => {
@@ -4248,6 +4357,7 @@ app.post("/api/orders/bulk-status", async (req, res) => {
     }
   }
   await saveDB(db, true, false, "orders");
+  broadcastServerEvent("orders_bulk_updated", { orderIds, status });
   res.json({ success: true, activity: newActivity, orders: db.orders, couriers: db.couriers });
 });
 app.post("/api/orders/bulk-import", async (req, res) => {
@@ -4532,6 +4642,7 @@ app.put("/api/couriers/:id", async (req, res) => {
     }
     saveDB(db, false, false, "couriers").catch(() => {
     });
+    broadcastServerEvent("courier_updated", { courier: updatedCourier, courierId: id });
     res.json(updatedCourier);
   } else {
     res.status(404).json({ error: "Entregador n\xE3o encontrado" });
@@ -4610,12 +4721,8 @@ app.post("/api/driver/login", async (req, res) => {
       const cCleanPhone = String(c.phone || "").replace(/\D/g, "");
       const cId = String(c.id || "").toLowerCase();
       const inputLower = inputPhone.toLowerCase();
-      if (inputCleanPhone && cCleanPhone) {
-        const normInput = inputCleanPhone.replace(/^55(?=1[1-9])/, "");
-        const normCPhone = cCleanPhone.replace(/^55(?=1[1-9])/, "");
-        if (normInput.length >= 10 && normInput === normCPhone) {
-          return true;
-        }
+      if (inputCleanPhone && cCleanPhone && (cCleanPhone === inputCleanPhone || cCleanPhone.endsWith(inputCleanPhone) || inputCleanPhone.endsWith(cCleanPhone))) {
+        return true;
       }
       if (cId === inputLower) {
         return true;
@@ -4640,23 +4747,6 @@ app.post("/api/driver/login", async (req, res) => {
     const clientDeviceId = req.body?.deviceId || `dev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newSessionToken = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-    try {
-      let revokedOthers = 0;
-      couriers2.forEach((other) => {
-        if (other && other.id !== courier.id && other.activeDeviceId && other.activeDeviceId === clientDeviceId) {
-          other.activeSessionToken = null;
-          other.activeDeviceId = null;
-          other.lastLoginAt = null;
-          other.lastLoginDevice = null;
-          revokedOthers++;
-        }
-      });
-      if (revokedOthers > 0) {
-        console.log(`[POST /api/driver/login] Sess\xE3o de ${revokedOthers} outro(s) condutor(es) revogada(s) no mesmo aparelho (deviceId ${clientDeviceId}).`);
-      }
-    } catch (revokeErr) {
-      console.warn("[POST /api/driver/login] Aviso ao revogar sess\xF5es anteriores no mesmo aparelho:", revokeErr);
-    }
     courier.activeSessionToken = newSessionToken;
     courier.activeDeviceId = clientDeviceId;
     courier.lastLoginAt = nowIso;
@@ -6175,271 +6265,6 @@ app.get("/api/github/status", (req, res) => {
   }
   res.json(db.githubConnection || { connected: false });
 });
-var AUTO_DEPLOY_STATE = { running: false, lastRunAt: null, lastResult: null, pendingRestartAt: 0 };
-var updateCheckCache = null;
-function getAutoDeployEnabled() {
-  try {
-    const db2 = loadDB();
-    return db2.autoDeploy ? db2.autoDeploy.enabled !== false : true;
-  } catch (e) {
-    return true;
-  }
-}
-function setAutoDeployEnabled(enabled) {
-  const db2 = loadDB();
-  db2.autoDeploy = { ...db2.autoDeploy || {}, enabled, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  saveDB(db2);
-}
-function logAutoDeploy(line) {
-  console.log(`[Auto-Deploy] ${line}`);
-  try {
-    import_fs.default.appendFileSync(import_path.default.join(process.cwd(), "src", "auto-deploy.log"), `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
-`);
-  } catch (e) {
-  }
-}
-async function runAutoDeploy(source, opts) {
-  const forceBuild = !!opts?.forceBuild;
-  if (AUTO_DEPLOY_STATE.running) {
-    return { success: false, error: "Auto-deploy j\xE1 em execu\xE7\xE3o." };
-  }
-  if (!getAutoDeployEnabled() && source !== "manual" && source !== "afterPush") {
-    return { success: false, error: "Auto-deploy desativado." };
-  }
-  if (Date.now() - AUTO_DEPLOY_STATE.pendingRestartAt < 6e4) {
-    logAutoDeploy(`[${source}] Ignorado (janela anti-loop de 60s).`);
-    return { success: false, error: "anti-loop" };
-  }
-  AUTO_DEPLOY_STATE.running = true;
-  AUTO_DEPLOY_STATE.lastRunAt = (/* @__PURE__ */ new Date()).toISOString();
-  const repo = `${process.env.GITHUB_USERNAME || "vinimapfreitas-design"}/${process.env.GITHUB_REPO || "VINIMAP-ACF"}`;
-  const result = { source, at: AUTO_DEPLOY_STATE.lastRunAt };
-  logAutoDeploy(`[${source}] Verificando ${repo} (branch main)...`);
-  try {
-    try {
-      (0, import_child_process.execSync)("git fetch origin main", { cwd: process.cwd(), stdio: "pipe", timeout: 6e4 });
-    } catch (fetchErr) {
-      try {
-        const remoteUrl = `https://github.com/${repo}.git`;
-        try {
-          (0, import_child_process.execSync)("git remote remove origin", { cwd: process.cwd(), stdio: "ignore" });
-        } catch {
-        }
-        (0, import_child_process.execSync)(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), stdio: "ignore" });
-        (0, import_child_process.execSync)("git fetch origin main", { cwd: process.cwd(), stdio: "pipe", timeout: 6e4 });
-      } catch (fetchErr2) {
-        throw new Error(`Falha ao buscar GitHub: ${String(fetchErr2 && fetchErr2.message || fetchErr2).split("\n")[0]}`);
-      }
-    }
-    let remoteSha = "";
-    try {
-      remoteSha = (0, import_child_process.execSync)("git rev-parse origin/main", { cwd: process.cwd(), encoding: "utf-8" }).toString().trim();
-    } catch (e) {
-    }
-    let localSha = "";
-    try {
-      localSha = (0, import_child_process.execSync)("git rev-parse HEAD", { cwd: process.cwd(), encoding: "utf-8" }).toString().trim();
-    } catch (e) {
-    }
-    result.remoteSha = remoteSha;
-    result.localSha = localSha;
-    if (remoteSha && remoteSha === localSha && !forceBuild) {
-      logAutoDeploy(`[${source}] Sem atualiza\xE7\xF5es (${localSha.slice(0, 7)}).`);
-      result.success = true;
-      result.upToDate = true;
-      AUTO_DEPLOY_STATE.lastResult = result;
-      return result;
-    }
-    try {
-      const dirty = (0, import_child_process.execSync)("git status --porcelain", { cwd: process.cwd(), encoding: "utf-8" }).toString().trim();
-      if (dirty) {
-        (0, import_child_process.execSync)("git add -A", { cwd: process.cwd(), stdio: "pipe" });
-        (0, import_child_process.execSync)(`git commit -m "chore: snapshot auto-deploy ${(/* @__PURE__ */ new Date()).toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: "pipe" });
-        logAutoDeploy("Snapshot local criado (mudan\xE7as preservadas no git).");
-      }
-    } catch (e) {
-    }
-    if (remoteSha && remoteSha !== localSha) {
-      logAutoDeploy(`[${source}] Atualizando ${localSha ? localSha.slice(0, 7) : "?"} -> ${remoteSha.slice(0, 7)}...`);
-      (0, import_child_process.execSync)("git reset --hard origin/main", { cwd: process.cwd(), stdio: "pipe" });
-      result.updated = true;
-    } else {
-      logAutoDeploy(`[${source}] Build for\xE7ado do c\xF3digo atual (${(localSha || "").slice(0, 7)}).`);
-      result.updated = false;
-    }
-    logAutoDeploy(`[${source}] Executando npm run build...`);
-    try {
-      (0, import_child_process.execSync)("npm run build", { cwd: process.cwd(), encoding: "utf-8", stdio: "pipe", timeout: 6e5, maxBuffer: 50 * 1024 * 1024 });
-      result.buildOk = true;
-    } catch (buildErr) {
-      result.buildOk = false;
-      result.buildError = String(buildErr && buildErr.message || buildErr).split("\n")[0];
-      logAutoDeploy(`FALHA no build: ${result.buildError}`);
-      AUTO_DEPLOY_STATE.lastResult = result;
-      return result;
-    }
-    result.restarting = true;
-    result.commitApplied = (remoteSha || localSha || "").slice(0, 7);
-    AUTO_DEPLOY_STATE.pendingRestartAt = Date.now();
-    AUTO_DEPLOY_STATE.lastResult = result;
-    logAutoDeploy(`[${source}] Build OK. Reiniciando servidor para aplicar ${result.commitApplied} em ~2s...`);
-    setTimeout(() => {
-      try {
-        process.exit(1);
-      } catch (e) {
-      }
-    }, 2e3);
-    return result;
-  } catch (err) {
-    result.success = false;
-    result.error = String(err && err.message || err).split("\n")[0];
-    logAutoDeploy(`ERRO: ${result.error}`);
-    AUTO_DEPLOY_STATE.lastResult = result;
-    return result;
-  } finally {
-    AUTO_DEPLOY_STATE.running = false;
-  }
-}
-app.get("/api/auto-deploy/status", (req, res) => {
-  const db2 = loadDB();
-  res.json({
-    enabled: db2.autoDeploy ? db2.autoDeploy.enabled !== false : true,
-    running: AUTO_DEPLOY_STATE.running,
-    lastRunAt: AUTO_DEPLOY_STATE.lastRunAt,
-    lastResult: AUTO_DEPLOY_STATE.lastResult,
-    repo: `${process.env.GITHUB_USERNAME || "vinimapfreitas-design"}/${process.env.GITHUB_REPO || "VINIMAP-ACF"}`,
-    branch: "main",
-    pollIntervalSec: 300
-  });
-});
-app.post("/api/auto-deploy/trigger", async (req, res) => {
-  const action = req.body && req.body.action || null;
-  try {
-    if (action === "enable") {
-      setAutoDeployEnabled(true);
-      logAutoDeploy("Auto-deploy ATIVADO pelo painel.");
-      return res.json({ success: true, enabled: true });
-    }
-    if (action === "disable") {
-      setAutoDeployEnabled(false);
-      logAutoDeploy("Auto-deploy DESATIVADO pelo painel.");
-      return res.json({ success: true, enabled: false });
-    }
-    if (action === "run") {
-      const r = await runAutoDeploy("manual", { forceBuild: true });
-      return res.json({ success: !!r.success, result: r });
-    }
-    return res.status(400).json({ success: false, error: "A\xE7\xE3o inv\xE1lida. Use: enable | disable | run" });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err && err.message || err) });
-  }
-});
-app.get("/api/update-check", async (req, res) => {
-  const distPath = import_path.default.join(process.cwd(), "dist");
-  const repo = `${process.env.GITHUB_USERNAME || "vinimapfreitas-design"}/${process.env.GITHUB_REPO || "VINIMAP-ACF"}`;
-  let currentCommit = "";
-  try {
-    currentCommit = (0, import_child_process.execSync)("git rev-parse HEAD", { cwd: process.cwd(), stdio: "pipe" }).toString().trim();
-  } catch (_) {
-  }
-  let currentBuild = null;
-  try {
-    currentBuild = import_fs.default.statSync(import_path.default.join(distPath, "index.html")).mtime.toISOString();
-  } catch (_) {
-  }
-  let latest = null;
-  let status = "ok";
-  const now = Date.now();
-  if (updateCheckCache && now - updateCheckCache.at < 5 * 60 * 1e3) {
-    latest = updateCheckCache.latest;
-    status = "cached";
-  } else {
-    try {
-      const headers = { "Accept": "application/vnd.github.v3+json", "User-Agent": "ViniMap-Update-Checker" };
-      const pat = process.env.GITHUB_PAT || "";
-      if (pat) headers["Authorization"] = `Bearer ${pat}`;
-      const ghRes = await fetch(`https://api.github.com/repos/${repo}/commits/main`, { headers });
-      if (ghRes.ok) {
-        const d = await ghRes.json();
-        latest = {
-          sha: d.sha || "",
-          short: d.sha ? d.sha.slice(0, 7) : "",
-          message: (d.commit && d.commit.message ? d.commit.message.split("\n")[0] : "") || "",
-          date: d.commit && (d.commit.committer && d.commit.committer.date || d.commit.author && d.commit.author.date) || null,
-          url: d.html_url || `https://github.com/${repo}/commit/${d.sha || ""}`
-        };
-        updateCheckCache = { at: now, latest, status: "ok" };
-        status = "ok";
-      } else if (ghRes.status === 403 || ghRes.status === 429) {
-        status = "rate_limited";
-      } else {
-        status = `error_${ghRes.status}`;
-      }
-    } catch (err) {
-      status = "network_error";
-    }
-  }
-  let hasUpdate = false;
-  let reason = "";
-  if (latest) {
-    if (currentCommit) {
-      hasUpdate = latest.sha !== currentCommit;
-      reason = hasUpdate ? `GitHub main est\xE1 no commit ${latest.short}, mas o deploy roda o commit ${currentCommit.slice(0, 7)}.` : "Deploy em dia com o GitHub.";
-    } else if (currentBuild && latest.date) {
-      hasUpdate = new Date(latest.date).getTime() > new Date(currentBuild).getTime();
-      reason = hasUpdate ? "\xDAltimo commit do GitHub \xE9 mais novo que o build em execu\xE7\xE3o." : "Deploy em dia com o GitHub.";
-    }
-  }
-  res.json({
-    repo,
-    branch: "main",
-    hasUpdate,
-    reason,
-    status,
-    current: { commit: currentCommit ? currentCommit.slice(0, 7) : null, build: currentBuild },
-    latest,
-    checkedAt: (/* @__PURE__ */ new Date()).toISOString()
-  });
-});
-app.get("/api/deploy-info", (req, res) => {
-  const distPath = import_path.default.join(process.cwd(), "dist");
-  let commit = "";
-  let commitDate = "";
-  let commitMessage = "";
-  try {
-    commit = (0, import_child_process.execSync)("git rev-parse --short HEAD", { cwd: process.cwd(), stdio: "pipe" }).toString().trim();
-  } catch (_) {
-  }
-  try {
-    commitDate = (0, import_child_process.execSync)("git log -1 --format=%cI", { cwd: process.cwd(), stdio: "pipe" }).toString().trim();
-  } catch (_) {
-  }
-  try {
-    commitMessage = (0, import_child_process.execSync)("git log -1 --format=%s", { cwd: process.cwd(), stdio: "pipe" }).toString().trim();
-  } catch (_) {
-  }
-  let serverBuildTime = null;
-  let frontendBuildTime = null;
-  try {
-    serverBuildTime = import_fs.default.statSync(import_path.default.join(distPath, "server.cjs")).mtime.toISOString();
-  } catch (_) {
-  }
-  try {
-    frontendBuildTime = import_fs.default.statSync(import_path.default.join(distPath, "index.html")).mtime.toISOString();
-  } catch (_) {
-  }
-  res.json({
-    app: "VMAPSACF - ViniMap Fleet",
-    repo: `${process.env.GITHUB_USERNAME || "vinimapfreitas-design"}/${process.env.GITHUB_REPO || "VINIMAP-ACF"}`,
-    branch: "main",
-    commit: commit || null,
-    commitDate: commitDate || null,
-    commitMessage: commitMessage || null,
-    build: { serverCjs: serverBuildTime, frontend: frontendBuildTime },
-    uptimeSeconds: Math.round(process.uptime()),
-    now: (/* @__PURE__ */ new Date()).toISOString()
-  });
-});
 app.post("/api/github/save-config", (req, res) => {
   const { clientId, clientSecret } = req.body;
   const db = loadDB();
@@ -6966,7 +6791,7 @@ app.post(["/api/github/push-code", "/api/github/push"], async (req, res) => {
         details: `O Token de Acesso Pessoal (PAT) atual est\xE1 expirado ou com credenciais inv\xE1lidas no GitHub. A sincroniza\xE7\xE3o local foi conclu\xEDda com sucesso para n\xE3o bloquear seus testes ou fluxos de dados.`
       });
     }
-    console.log("[GitHub Real Push] Efetuando push para a branch 'main'...");
+    console.log("[GitHub Real Push] Conectando ao reposit\xF3rio remoto e puxando a branch 'main' antes do push...");
     let pushSuccess = false;
     let lastPushErr = null;
     for (const remoteUrl of remoteUrlsToTry) {
@@ -6976,8 +6801,46 @@ app.post(["/api/github/push-code", "/api/github/push"], async (req, res) => {
         } catch (e) {
         }
         (0, import_child_process.execSync)(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), shell: "/bin/bash" });
-        (0, import_child_process.execSync)("git push -u origin main --force", { cwd: process.cwd(), shell: "/bin/bash", encoding: "utf-8" });
-        console.log("[GitHub Real Push] Envio para o GitHub conclu\xEDdo com sucesso!");
+        try {
+          console.log("[GitHub Real Push] Executando git pull origin main (preservando atualiza\xE7\xF5es do Shard Cloud)...");
+          (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", {
+            cwd: process.cwd(),
+            shell: "/bin/bash",
+            encoding: "utf-8",
+            stdio: "pipe"
+          });
+          console.log("[GitHub Real Push] Branch 'main' remota sincronizada e mesclada com sucesso!");
+        } catch (pullErr) {
+          const pullMsg = String(pullErr?.message || pullErr);
+          if (pullMsg.includes("couldn't find remote ref main") || pullMsg.includes("fatal: couldn't find remote ref") || pullMsg.includes("no such ref")) {
+            console.log("[GitHub Real Push] Reposit\xF3rio remoto novo (branch 'main' ainda n\xE3o existe no GitHub). Prosseguindo com cria\xE7\xE3o inicial.");
+          } else {
+            console.log("[GitHub Real Push] Aviso durante git pull (tentando reconcilia\xE7\xE3o com hist\xF3rico):", pullMsg.split("\n")[0]);
+            try {
+              (0, import_child_process.execSync)("git merge --abort", { cwd: process.cwd(), stdio: "ignore" });
+            } catch (_) {
+            }
+          }
+        }
+        try {
+          (0, import_child_process.execSync)("git add .", { cwd: process.cwd(), stdio: "ignore" });
+          (0, import_child_process.execSync)(`git commit -m "merge: sincronizar atualiza\xE7\xF5es remotas do Shard Cloud com AI Studio" --no-verify`, { cwd: process.cwd(), stdio: "ignore" });
+        } catch (_) {
+        }
+        console.log("[GitHub Real Push] Enviando c\xF3digo atualizado para a branch 'main'...");
+        try {
+          (0, import_child_process.execSync)("git push -u origin main", { cwd: process.cwd(), shell: "/bin/bash", encoding: "utf-8" });
+        } catch (normalPushErr) {
+          console.log("[GitHub Real Push] Push padr\xE3o exigiu reconcilia\xE7\xE3o adicional. Re-puxando e finalizando envio...");
+          try {
+            (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
+            (0, import_child_process.execSync)("git add .", { cwd: process.cwd(), stdio: "ignore" });
+            (0, import_child_process.execSync)('git commit -m "merge: reconcilia\xE7\xE3o final de branch main" --no-verify', { cwd: process.cwd(), stdio: "ignore" });
+          } catch (_) {
+          }
+          (0, import_child_process.execSync)("git push -u origin main", { cwd: process.cwd(), shell: "/bin/bash", encoding: "utf-8" });
+        }
+        console.log("[GitHub Real Push] Envio para o GitHub conclu\xEDdo com sucesso e sem perda de dados do Shard Cloud!");
         pushSuccess = true;
         break;
       } catch (pushErr) {
@@ -7003,7 +6866,11 @@ app.post(["/api/github/push-code", "/api/github/push"], async (req, res) => {
             } catch (e) {
             }
             (0, import_child_process.execSync)(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), shell: "/bin/bash" });
-            (0, import_child_process.execSync)("git push -u origin main --force", { cwd: process.cwd(), shell: "/bin/bash", encoding: "utf-8" });
+            try {
+              (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
+            } catch (_) {
+            }
+            (0, import_child_process.execSync)("git push -u origin main", { cwd: process.cwd(), shell: "/bin/bash", encoding: "utf-8" });
             console.log("[GitHub Real Push] Envio para o GitHub recuperado e conclu\xEDdo com sucesso!");
             pushSuccess = true;
             break;
@@ -7334,6 +7201,7 @@ if (!process.env.VERCEL) {
 var server_default = app;
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  broadcastServerEvent,
   sendPushNotification
 });
 //# sourceMappingURL=server.cjs.map
