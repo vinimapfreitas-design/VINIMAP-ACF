@@ -225,18 +225,24 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
 
   // Strict Courier isolation resolver
   const selectedCourier = React.useMemo(() => {
-    const targetId = (standaloneCourierId || selectedDriverId || '').trim();
+    // In standalone mode (real driver phone), strictly enforce standaloneCourierId
+    // In preview / simulator mode, allow selecting courier via dropdown (selectedDriverId)
+    const targetId = String(isStandalone ? (standaloneCourierId || selectedDriverId || '') : (selectedDriverId || standaloneCourierId || '')).trim();
     if (!targetId) {
       return !isStandalone && couriers.length > 0 ? couriers[0] : null;
     }
-    const userCleanPhone = targetId.replace(/\D/g, '');
+    const normPhone = (p: string | null | undefined) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+    const userCleanPhone = normPhone(targetId);
+    const targetLower = targetId.toLowerCase();
+
     const matched = couriers.find(c => {
-      const cPhoneClean = (c.phone || '').replace(/\D/g, '');
-      return (
-        c.id === targetId || 
-        (cPhoneClean && userCleanPhone && (cPhoneClean === userCleanPhone || cPhoneClean.endsWith(userCleanPhone) || userCleanPhone.endsWith(cPhoneClean))) ||
-        (c.name && targetId && c.name.toLowerCase() === targetId.toLowerCase())
-      );
+      if (!c) return false;
+      if (c.id && c.id.toLowerCase() === targetLower) return true;
+      const cPhoneClean = normPhone(c.phone);
+      if (userCleanPhone.length >= 10 && cPhoneClean.length >= 10 && cPhoneClean === userCleanPhone) {
+        return true;
+      }
+      return false;
     });
     if (matched) return matched;
     // In standalone mode (real driver phone), NEVER fallback to another driver's data
@@ -246,10 +252,11 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
   // Synchronize default driver selection when couriers load without erratic order-based flipping
   useEffect(() => {
     if (!isStandalone && couriers.length > 0) {
-      const cleanSelected = String(selectedDriverId || '').replace(/\D/g, '');
+      const normPhone = (p: string | null | undefined) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+      const cleanSelected = normPhone(selectedDriverId);
       const isAlreadyValid = couriers.some(c => {
-        const cPhoneClean = String(c.phone || '').replace(/\D/g, '');
-        return c.id === selectedDriverId || (cleanSelected && cPhoneClean && cleanSelected === cPhoneClean);
+        const cPhoneClean = normPhone(c.phone);
+        return c.id === selectedDriverId || (cleanSelected.length >= 10 && cPhoneClean.length >= 10 && cleanSelected === cPhoneClean);
       });
 
       if (!selectedDriverId || !isAlreadyValid) {
@@ -468,39 +475,25 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
     // Cancelled and obsolete orders must never be assigned or matched to driver active workflow
     if (isCancelledOrObsolete(o)) return false;
 
-    // Collect all valid IDs and exact phone numbers for the active driver
-    const validIds = new Set<string>();
-    const validPhones = new Set<string>();
+    // Isolate strictly by selected active courier
+    if (!selectedCourier) return false;
 
-    const targetCourier = selectedCourier;
-    if (targetCourier) {
-      if (targetCourier.id) validIds.add(String(targetCourier.id).trim().toLowerCase());
-      if (targetCourier.phone) {
-        const d = String(targetCourier.phone).replace(/\D/g, '');
-        if (d.length >= 8) validPhones.add(d);
-      }
-    } else if (standaloneCourierId) {
-      validIds.add(String(standaloneCourierId).trim().toLowerCase());
-      const stDigits = String(standaloneCourierId).replace(/\D/g, '');
-      if (stDigits.length >= 8) validPhones.add(stDigits);
-    } else if (selectedDriverId) {
-      validIds.add(String(selectedDriverId).trim().toLowerCase());
-      const sDigits = String(selectedDriverId).replace(/\D/g, '');
-      if (sDigits.length >= 8) validPhones.add(sDigits);
-    }
+    const normPhone = (p: string | null | undefined) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+    const activeCourierId = String(selectedCourier.id || '').trim().toLowerCase();
+    const activeCourierPhone = normPhone(selectedCourier.phone);
 
     // 1. Primary and definitive check: exact courier ID match
     const orderCourierId = o.courierId || o.driverId || o.entregadorId || o.motoristaId;
     if (orderCourierId && orderCourierId !== 'null' && orderCourierId !== 'undefined') {
       const ordCId = String(orderCourierId).trim().toLowerCase();
-      return validIds.has(ordCId);
+      return ordCId === activeCourierId;
     }
 
     // 2. Secondary fallback: exact phone match on dispositivoCondutor (ONLY if order has no courierId)
     const orderDevice = o.dispositivoCondutor || o.dispositivo_condutor || o.driverPhone;
     if (orderDevice && orderDevice !== 'null' && orderDevice !== 'undefined') {
-      const ordDigits = String(orderDevice).replace(/\D/g, '');
-      if (ordDigits && ordDigits.length >= 10 && validPhones.has(ordDigits)) {
+      const ordNorm = normPhone(orderDevice);
+      if (ordNorm.length >= 10 && activeCourierPhone.length >= 10 && ordNorm === activeCourierPhone) {
         return true;
       }
     }
