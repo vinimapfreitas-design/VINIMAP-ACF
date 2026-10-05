@@ -1,3 +1,4 @@
+// ViniMap Fleet Server — v2 (auto-deploy restaurado)
 import express from "express";
 import path from "path";
 import fs from "fs";
@@ -8574,6 +8575,144 @@ app.post('/api/github/webhooks/test-connection', (req, res) => {
   });
 });
 
+// ============================================================================
+// AUTO-DEPLOY (GitHub -> build -> restart automático)
+// Mantém o servidor sincronizado com o repositório remoto: a cada 5 minutos
+// verifica se há novos commits em origin/main; se houver, cria um snapshot
+// local, puxa o remoto preservando alterações locais, executa o build e
+// reinicia o servidor para aplicar a nova versão.
+// ============================================================================
+let autoDeployEnabled = true;
+let autoDeployBuilding = false;
+let autoDeployLastCheck: string | null = null;
+let autoDeployLastUpdate: string | null = null;
+
+const AUTO_DEPLOY_OWNER = process.env.GITHUB_USERNAME || 'vinimapfreitas-design';
+const AUTO_DEPLOY_REPO = (process.env.GITHUB_REPO && process.env.GITHUB_REPO !== 'VINIMAP2026' && process.env.GITHUB_REPO !== 'VINIMAPACF')
+  ? process.env.GITHUB_REPO
+  : 'VINIMAP-ACF';
+
+function autoDeployGitCurrentCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function autoDeployGitRemoteCommit(): string {
+  try {
+    execSync('git fetch origin main --quiet', { cwd: process.cwd(), shell: '/bin/bash', stdio: 'ignore' });
+    return execSync('git rev-parse --short origin/main', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function autoDeployCreateLocalSnapshot() {
+  try {
+    execSync('git add .', { cwd: process.cwd(), stdio: 'ignore' });
+    execSync(`git commit -m "chore: snapshot auto-deploy ${new Date().toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: 'ignore' });
+    console.log('[Auto-Deploy] Snapshot local criado (mudancas preservadas no git).');
+  } catch (e) {
+    // nada a commitar (sem alterações pendentes) - ok
+  }
+}
+
+function autoDeployPullRemote() {
+  try {
+    execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', {
+      cwd: process.cwd(),
+      shell: '/bin/bash',
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    console.warn('[Auto-Deploy] Aviso no git pull (prosseguindo):', String((e as any)?.message || e).split('\n')[0]);
+  }
+}
+
+function autoDeployScheduleRestart(commit: string, reason: string) {
+  console.log(`[Auto-Deploy] [${reason}] Build OK. Reiniciando servidor para aplicar ${commit} em ~2s...`);
+  setTimeout(() => {
+    console.log('[Auto-Deploy] Reiniciando servidor para aplicar a nova versão...');
+    process.exit(0);
+  }, 2000);
+}
+
+async function autoDeployRun(reason: 'poll' | 'manual') {
+  if (autoDeployBuilding) {
+    console.log(`[Auto-Deploy] [${reason}] Build já em andamento, ignorando.`);
+    return;
+  }
+  autoDeployBuilding = true;
+  autoDeployLastCheck = new Date().toISOString();
+  const current = autoDeployGitCurrentCommit();
+  try {
+    console.log(`[Auto-Deploy] [${reason}] Verificando ${AUTO_DEPLOY_OWNER}/${AUTO_DEPLOY_REPO} (branch main)...`);
+    autoDeployCreateLocalSnapshot();
+    if (reason === 'poll') {
+      autoDeployPullRemote();
+    } else {
+      console.log(`[Auto-Deploy] [manual] Build forcado do codigo atual (${current}).`);
+    }
+    const target = autoDeployGitCurrentCommit() || current;
+    console.log(`[Auto-Deploy] [${reason}] Atualizando ${current} -> ${target}...`);
+    console.log(`[Auto-Deploy] [${reason}] Executando npm run build...`);
+    execSync('npm run build', { cwd: process.cwd(), stdio: 'inherit' });
+    autoDeployLastUpdate = new Date().toISOString();
+    autoDeployScheduleRestart(target, reason);
+  } catch (err: any) {
+    console.error(`[Auto-Deploy] [${reason}] Erro durante build/atualização:`, err?.message || err);
+  } finally {
+    autoDeployBuilding = false;
+  }
+}
+
+function startAutoDeployScheduler() {
+  console.log('[Auto-Deploy] Agendador de verificacao ativo (poll a cada 5 min).');
+  setInterval(() => {
+    if (!autoDeployEnabled || autoDeployBuilding) return;
+    try {
+      const current = autoDeployGitCurrentCommit();
+      const remote = autoDeployGitRemoteCommit();
+      if (current && remote && current !== remote) {
+        autoDeployRun('poll');
+      }
+    } catch (e) {
+      // falha transitória de rede/git - ignora e tenta no próximo ciclo
+    }
+  }, 5 * 60 * 1000);
+}
+
+// Endpoints de status, acionamento manual e controle do auto-deploy
+app.get('/api/auto-deploy/status', (req, res) => {
+  res.json({
+    enabled: autoDeployEnabled,
+    building: autoDeployBuilding,
+    lastCheck: autoDeployLastCheck,
+    lastUpdate: autoDeployLastUpdate,
+    owner: AUTO_DEPLOY_OWNER,
+    repo: AUTO_DEPLOY_REPO,
+    currentCommit: autoDeployGitCurrentCommit(),
+  });
+});
+
+app.post('/api/auto-deploy/trigger', (req, res) => {
+  res.json({ success: true, message: 'Build manual do auto-deploy iniciado.' });
+  autoDeployRun('manual');
+});
+
+app.post('/api/auto-deploy/disable', (req, res) => {
+  autoDeployEnabled = false;
+  res.json({ success: true, enabled: false });
+});
+
+app.post('/api/auto-deploy/enable', (req, res) => {
+  autoDeployEnabled = true;
+  res.json({ success: true, enabled: true });
+});
+// ============================================================================
+
 // Serve frontend assets using Vite in Dev mode or Static server in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -8635,6 +8774,7 @@ async function startServer() {
 }
 
 if (!process.env.VERCEL) {
+  startAutoDeployScheduler();
   startServer();
 } else {
   // Always trigger cloud sync on Vercel cold starts
