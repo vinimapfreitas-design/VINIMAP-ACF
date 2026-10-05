@@ -4717,11 +4717,13 @@ app.post("/api/driver/login", async (req, res) => {
     }
     const db = loadDB();
     const couriers2 = db.couriers || [];
+    const normPhone = (p) => String(p || "").replace(/\D/g, "").replace(/^55(?=1[1-9])/, "");
+    const normInput = normPhone(inputCleanPhone);
     const courier = couriers2.find((c) => {
-      const cCleanPhone = String(c.phone || "").replace(/\D/g, "");
+      const cCleanPhone = normPhone(c.phone || "");
       const cId = String(c.id || "").toLowerCase();
       const inputLower = inputPhone.toLowerCase();
-      if (inputCleanPhone && cCleanPhone && (cCleanPhone === inputCleanPhone || cCleanPhone.endsWith(inputCleanPhone) || inputCleanPhone.endsWith(cCleanPhone))) {
+      if (normInput && cCleanPhone && normInput.length >= 10 && cCleanPhone === normInput) {
         return true;
       }
       if (cId === inputLower) {
@@ -4747,6 +4749,23 @@ app.post("/api/driver/login", async (req, res) => {
     const clientDeviceId = req.body?.deviceId || `dev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newSessionToken = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const nowIso = (/* @__PURE__ */ new Date()).toISOString();
+    try {
+      let revokedOthers = 0;
+      couriers2.forEach((other) => {
+        if (other && other.id !== courier.id && other.activeDeviceId && other.activeDeviceId === clientDeviceId) {
+          other.activeSessionToken = null;
+          other.activeDeviceId = null;
+          other.lastLoginAt = null;
+          other.lastLoginDevice = null;
+          revokedOthers++;
+        }
+      });
+      if (revokedOthers > 0) {
+        console.log(`[POST /api/driver/login] Sess\xE3o de ${revokedOthers} outro(s) condutor(es) revogada(s) no mesmo aparelho (deviceId ${clientDeviceId}).`);
+      }
+    } catch (revokeErr) {
+      console.warn("[POST /api/driver/login] Aviso ao revogar sess\xF5es anteriores no mesmo aparelho:", revokeErr);
+    }
     courier.activeSessionToken = newSessionToken;
     courier.activeDeviceId = clientDeviceId;
     courier.lastLoginAt = nowIso;
