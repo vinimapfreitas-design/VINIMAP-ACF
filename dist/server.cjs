@@ -7139,6 +7139,118 @@ app.post("/api/github/webhooks/test-connection", (req, res) => {
     activity: newActivity
   });
 });
+var autoDeployEnabled = true;
+var autoDeployBuilding = false;
+var autoDeployLastCheck = null;
+var autoDeployLastUpdate = null;
+var AUTO_DEPLOY_OWNER = process.env.GITHUB_USERNAME || "vinimapfreitas-design";
+var AUTO_DEPLOY_REPO = process.env.GITHUB_REPO && process.env.GITHUB_REPO !== "VINIMAP2026" && process.env.GITHUB_REPO !== "VINIMAPACF" ? process.env.GITHUB_REPO : "VINIMAP-ACF";
+function autoDeployGitCurrentCommit() {
+  try {
+    return (0, import_child_process.execSync)("git rev-parse --short HEAD", { cwd: process.cwd(), encoding: "utf-8" }).trim();
+  } catch (e) {
+    return "";
+  }
+}
+function autoDeployGitRemoteCommit() {
+  try {
+    (0, import_child_process.execSync)("git fetch origin main --quiet", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
+    return (0, import_child_process.execSync)("git rev-parse --short origin/main", { cwd: process.cwd(), encoding: "utf-8" }).trim();
+  } catch (e) {
+    return "";
+  }
+}
+function autoDeployCreateLocalSnapshot() {
+  try {
+    (0, import_child_process.execSync)("git add .", { cwd: process.cwd(), stdio: "ignore" });
+    (0, import_child_process.execSync)(`git commit -m "chore: snapshot auto-deploy ${(/* @__PURE__ */ new Date()).toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: "ignore" });
+    console.log("[Auto-Deploy] Snapshot local criado (mudancas preservadas no git).");
+  } catch (e) {
+  }
+}
+function autoDeployPullRemote() {
+  try {
+    (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", {
+      cwd: process.cwd(),
+      shell: "/bin/bash",
+      stdio: "ignore"
+    });
+  } catch (e) {
+    console.warn("[Auto-Deploy] Aviso no git pull (prosseguindo):", String(e?.message || e).split("\n")[0]);
+  }
+}
+function autoDeployScheduleRestart(commit, reason) {
+  console.log(`[Auto-Deploy] [${reason}] Build OK. Reiniciando servidor para aplicar ${commit} em ~2s...`);
+  setTimeout(() => {
+    console.log("[Auto-Deploy] Reiniciando servidor para aplicar a nova vers\xE3o...");
+    process.exit(0);
+  }, 2e3);
+}
+async function autoDeployRun(reason) {
+  if (autoDeployBuilding) {
+    console.log(`[Auto-Deploy] [${reason}] Build j\xE1 em andamento, ignorando.`);
+    return;
+  }
+  autoDeployBuilding = true;
+  autoDeployLastCheck = (/* @__PURE__ */ new Date()).toISOString();
+  const current = autoDeployGitCurrentCommit();
+  try {
+    console.log(`[Auto-Deploy] [${reason}] Verificando ${AUTO_DEPLOY_OWNER}/${AUTO_DEPLOY_REPO} (branch main)...`);
+    autoDeployCreateLocalSnapshot();
+    if (reason === "poll") {
+      autoDeployPullRemote();
+    } else {
+      console.log(`[Auto-Deploy] [manual] Build forcado do codigo atual (${current}).`);
+    }
+    const target = autoDeployGitCurrentCommit() || current;
+    console.log(`[Auto-Deploy] [${reason}] Atualizando ${current} -> ${target}...`);
+    console.log(`[Auto-Deploy] [${reason}] Executando npm run build...`);
+    (0, import_child_process.execSync)("npm run build", { cwd: process.cwd(), stdio: "inherit" });
+    autoDeployLastUpdate = (/* @__PURE__ */ new Date()).toISOString();
+    autoDeployScheduleRestart(target, reason);
+  } catch (err) {
+    console.error(`[Auto-Deploy] [${reason}] Erro durante build/atualiza\xE7\xE3o:`, err?.message || err);
+  } finally {
+    autoDeployBuilding = false;
+  }
+}
+function startAutoDeployScheduler() {
+  console.log("[Auto-Deploy] Agendador de verificacao ativo (poll a cada 5 min).");
+  setInterval(() => {
+    if (!autoDeployEnabled || autoDeployBuilding) return;
+    try {
+      const current = autoDeployGitCurrentCommit();
+      const remote = autoDeployGitRemoteCommit();
+      if (current && remote && current !== remote) {
+        autoDeployRun("poll");
+      }
+    } catch (e) {
+    }
+  }, 5 * 60 * 1e3);
+}
+app.get("/api/auto-deploy/status", (req, res) => {
+  res.json({
+    enabled: autoDeployEnabled,
+    building: autoDeployBuilding,
+    lastCheck: autoDeployLastCheck,
+    lastUpdate: autoDeployLastUpdate,
+    owner: AUTO_DEPLOY_OWNER,
+    repo: AUTO_DEPLOY_REPO,
+    currentCommit: autoDeployGitCurrentCommit()
+  });
+});
+app.post("/api/auto-deploy/trigger", (req, res) => {
+  res.json({ success: true, message: "Build manual do auto-deploy iniciado." });
+  autoDeployRun("manual");
+});
+app.post("/api/auto-deploy/disable", (req, res) => {
+  autoDeployEnabled = false;
+  res.json({ success: true, enabled: false });
+});
+app.post("/api/auto-deploy/enable", (req, res) => {
+  autoDeployEnabled = true;
+  res.json({ success: true, enabled: true });
+});
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await (0, import_vite.createServer)({
@@ -7194,6 +7306,7 @@ async function startServer() {
   }
 }
 if (!process.env.VERCEL) {
+  startAutoDeployScheduler();
   startServer();
 } else {
   triggerCloudSync();
