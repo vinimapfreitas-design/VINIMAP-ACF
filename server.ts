@@ -8619,15 +8619,21 @@ function autoDeployCreateLocalSnapshot() {
   }
 }
 
+function autoDeployAlignWithRemote() {
+  // Alinha o HEAD local EXATAMENTE com origin/main (sem merge commits locais).
+  // O snapshot local criado antes preserva quaisquer mudanças pendentes
+  // (recuperáveis via reflog), então o reset é seguro e impede o loop de
+  // reinícios causado por git pull --no-rebase (que cria commits locais que
+  // nunca são enviados ao remoto, fazendo o poll detectar "atualização"
+  // infinita a cada 5 minutos).
+  execSync('git reset --hard origin/main', { cwd: process.cwd(), shell: '/bin/bash', stdio: 'ignore' });
+}
+
 function autoDeployPullRemote() {
   try {
-    execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', {
-      cwd: process.cwd(),
-      shell: '/bin/bash',
-      stdio: 'ignore',
-    });
+    autoDeployAlignWithRemote();
   } catch (e) {
-    console.warn('[Auto-Deploy] Aviso no git pull (prosseguindo):', String((e as any)?.message || e).split('\n')[0]);
+    console.warn('[Auto-Deploy] Aviso no git reset (prosseguindo):', String((e as any)?.message || e).split('\n')[0]);
   }
 }
 
