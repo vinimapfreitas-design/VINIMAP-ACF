@@ -1,3 +1,4 @@
+// ViniMap Fleet Server — v2 (auto-deploy restaurado)
 import express from "express";
 import path from "path";
 import fs from "fs";
