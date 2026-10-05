@@ -137,15 +137,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   const findCourierMatch = (target: string, list: Courier[]) => {
     if (!target) return undefined;
-    const cleanDigits = target.replace(/\D/g, '');
     const cleanTargetLower = target.trim().toLowerCase();
+    const norm = (p: string | null | undefined) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+    const cleanDigits = norm(target);
     return list.find(c => {
+      if (!c) return false;
       if (c.id && c.id.toLowerCase() === cleanTargetLower) return true;
-      const cClean = String(c.phone || '').replace(/\D/g, '');
-      if (cleanDigits && cClean) {
-        if (cClean === cleanDigits) return true;
-        if (cleanDigits.length >= 8 && (cClean.endsWith(cleanDigits) || cleanDigits.endsWith(cClean))) return true;
-      }
+      const cClean = norm(c.phone);
+      if (cleanDigits.length >= 10 && cClean.length >= 10 && cClean === cleanDigits) return true;
       return false;
     });
   };
@@ -336,15 +335,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
 
     // 2. Fallback attempt: Match against localCouriers array
+    const norm = (p: string | null | undefined) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+    const normInput = norm(cleanInputDigits);
+    const inputLower = inputTrimmed.toLowerCase();
     let matchedCourier = localCouriers.find(c => {
-      const cCleanPhone = (c.phone || '').replace(/\D/g, '');
-      if (cleanInputDigits && cCleanPhone) {
-        if (cCleanPhone === cleanInputDigits) return true;
-        if (cleanInputDigits.length >= 8 && cCleanPhone.endsWith(cleanInputDigits)) return true;
-        if (cCleanPhone.length >= 8 && cleanInputDigits.endsWith(cCleanPhone)) return true;
-      }
-      if (c.id.toLowerCase() === inputTrimmed.toLowerCase()) return true;
-      if (c.name.toLowerCase() === inputTrimmed.toLowerCase()) return true;
+      if (!c) return false;
+      const cCleanPhone = norm(c.phone);
+      if (normInput.length >= 10 && cCleanPhone.length >= 10 && cCleanPhone === normInput) return true;
+      if (c.id && c.id.toLowerCase() === inputLower) return true;
       return false;
     });
 

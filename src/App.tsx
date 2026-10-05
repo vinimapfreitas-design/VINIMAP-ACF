@@ -316,17 +316,18 @@ export const isDriverMatchingSession = (driverUser: any, searchParams: URLSearch
   // If no driver specified in URL, existing valid driver session is accepted
   if (!urlId && !urlPhone) return true;
 
-  const userCleanPhone = String(driverUser.phone || driverUser.login || '').replace(/\D/g, '');
-  const urlCleanPhone = String(urlPhone || '').replace(/\D/g, '');
-  const urlIdCleanPhone = String(urlId || '').replace(/\D/g, '');
+  const normMatchPhone = (p: string) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+  const userCleanPhone = normMatchPhone(driverUser.phone || driverUser.login || '');
+  const urlCleanPhone = normMatchPhone(urlPhone || '');
+  const urlIdCleanPhone = normMatchPhone(urlId || '');
 
   if (urlId && (driverUser.id === urlId || driverUser.login === urlId)) {
     return true;
   }
-  if (urlCleanPhone && userCleanPhone && (userCleanPhone === urlCleanPhone || userCleanPhone.endsWith(urlCleanPhone) || urlCleanPhone.endsWith(userCleanPhone))) {
+  if (urlCleanPhone && userCleanPhone && urlCleanPhone.length >= 10 && userCleanPhone === urlCleanPhone) {
     return true;
   }
-  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 8 && (userCleanPhone === urlIdCleanPhone || userCleanPhone.endsWith(urlIdCleanPhone) || urlIdCleanPhone.endsWith(userCleanPhone))) {
+  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 10 && userCleanPhone === urlIdCleanPhone) {
     return true;
   }
   
@@ -708,11 +709,11 @@ export default function App() {
   // Validate and keep active driver session in sync with current backend couriers
   useEffect(() => {
     if (currentUser && currentUser.role === 'driver' && couriers.length > 0) {
-      const userPhoneClean = (currentUser.phone || currentUser.login || '').replace(/\D/g, '');
+      const normCheckPhone = (p: string) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
+      const userPhoneClean = normCheckPhone(currentUser.phone || currentUser.login || '');
       const verifiedCourier = couriers.find(c => 
         c.id === currentUser.id ||
-        (userPhoneClean && c.phone && c.phone.replace(/\D/g, '') === userPhoneClean) ||
-        (currentUser.name && c.name && c.name.toLowerCase() === currentUser.name.toLowerCase())
+        (userPhoneClean && userPhoneClean.length >= 10 && normCheckPhone(c.phone || '') === userPhoneClean)
       );
       if (verifiedCourier) {
         const updatedUser = {
@@ -780,6 +781,7 @@ export default function App() {
       window.localStorage.removeItem('vinimap_driver_id');
       window.localStorage.removeItem('vinimap_driver_device_id');
       window.localStorage.removeItem('vinimap_driver_login_time');
+      window.localStorage.removeItem('vinimap_device_role');
     } catch (_) {}
     setCurrentUser(null);
     setActiveTab('dashboard');
@@ -3487,10 +3489,12 @@ const markOrderAsDeleted = (orderId: string) => {
         return updated;
       });
 
-      // Synchronize active preview driver in simulator to this newly allocated courier
-      try {
-        localStorage.setItem('vinimap_driver_id', cleanCourierId);
-      } catch (_) {}
+      // Synchronize active preview driver in simulator ONLY if not in driver session
+      if (currentUser?.role !== 'driver') {
+        try {
+          localStorage.setItem('vinimap_driver_id', cleanCourierId);
+        } catch (_) {}
+      }
 
       setCouriers(prev => {
         const updated = prev.map(c => {
@@ -3584,6 +3588,10 @@ const markOrderAsDeleted = (orderId: string) => {
       const updatedOrder: Order = {
         ...targetOrder,
         courierId: undefined,
+        dispositivoCondutor: undefined,
+        courierName: undefined,
+        allocatedCourierName: undefined,
+        nomeCondutor: undefined,
         allocatedDate: undefined,
         valorCondutor: 0,
         status: 'pending',
@@ -3631,6 +3639,10 @@ const markOrderAsDeleted = (orderId: string) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           courierId: null, 
+          dispositivoCondutor: null,
+          courierName: null,
+          allocatedCourierName: null,
+          nomeCondutor: null,
           valorCondutor: 0, 
           status: 'pending',
           versionTimestamp: nowTimestamp,
