@@ -7187,15 +7187,14 @@ function autoDeployCreateLocalSnapshot() {
   } catch (e) {
   }
 }
+function autoDeployAlignWithRemote() {
+  (0, import_child_process.execSync)("git reset --hard origin/main", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
+}
 function autoDeployPullRemote() {
   try {
-    (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", {
-      cwd: process.cwd(),
-      shell: "/bin/bash",
-      stdio: "ignore"
-    });
+    autoDeployAlignWithRemote();
   } catch (e) {
-    console.warn("[Auto-Deploy] Aviso no git pull (prosseguindo):", String(e?.message || e).split("\n")[0]);
+    console.warn("[Auto-Deploy] Aviso no git reset (prosseguindo):", String(e?.message || e).split("\n")[0]);
   }
 }
 function autoDeployScheduleRestart(commit, reason) {
