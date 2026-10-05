@@ -260,17 +260,15 @@ export default function OrdersTable({
     return defaultRate;
   };
 
-  // Tabs & Pagination states - Default to 'open' to show only open orders on initial load
-  const [activeTab, setActiveTab] = useState<string>(statusFilter || 'open');
+  // Tabs & Pagination states - Default to 'all' to show all orders in the selected period by default
+  const [activeTab, setActiveTab] = useState<string>(statusFilter || 'all');
 
   // Manual search mode is revoked: totals are always calculated dynamically in real-time
   const showTotalsManual = true;
 
   // Sync activeTab with statusFilter prop if provided
   useEffect(() => {
-    if (statusFilter) {
-      setActiveTab(statusFilter);
-    }
+    setActiveTab(statusFilter || 'all');
   }, [statusFilter]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(50);
@@ -1009,7 +1007,7 @@ export default function OrdersTable({
 
   // Format Helper for Date solicitation strings to ISO
   const parseToISODate = (str: string | undefined): string => {
-    return parseToISODateUtil(str, getYesterdayISO());
+    return parseToISODateUtil(str, '');
   };
 
   const getRegionFromCEP = (cepStr: string): string => {
@@ -1072,7 +1070,7 @@ export default function OrdersTable({
       const cidadeMunicipioLower = (order.cidadeMunicipio || '').toLowerCase();
 
       // Memoize date parsing to avoid re-parsing on every filter pass
-      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : ''));
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
       const launchDateISO = parseToISODate(rawDateStr);
 
       // Memoize and pre-index history status times to avoid looping/reverse/split repeatedly
@@ -1097,11 +1095,39 @@ export default function OrdersTable({
             transitionDates['delivered'] = parseToISODate(order.deliveryProtocol.signedAt.split(' ')[0] || order.deliveryProtocol.signedAt);
           } else if (order.deliveredAt) {
             transitionDates['delivered'] = parseToISODate(order.deliveredAt.split(' ')[0]);
-          } else if (order.statusUpdatedAt || order.updatedAt) {
-            const rawTs = Number(order.statusUpdatedAt || order.updatedAt);
+          } else if (order.statusUpdatedAt) {
+            const rawTs = Number(order.statusUpdatedAt);
             if (rawTs > 0) {
               transitionDates['delivered'] = parseToISODate(formatToBrasiliaDate(new Date(rawTs)));
             }
+          }
+        }
+      }
+      if (order.status === 'cancelled' && !transitionDates['cancelled']) {
+        if (order.cancelledAt) {
+          transitionDates['cancelled'] = parseToISODate(order.cancelledAt.split(' ')[0]);
+        } else if (order.statusUpdatedAt) {
+          const rawTs = Number(order.statusUpdatedAt);
+          if (rawTs > 0) {
+            transitionDates['cancelled'] = parseToISODate(formatToBrasiliaDate(new Date(rawTs)));
+          }
+        }
+      }
+      if (order.status === 'failure' && !transitionDates['failure']) {
+        if (order.failureAt || (order as any).occurrenceAt) {
+          transitionDates['failure'] = parseToISODate((order.failureAt || (order as any).occurrenceAt).split(' ')[0]);
+        } else if (order.statusUpdatedAt) {
+          const rawTs = Number(order.statusUpdatedAt);
+          if (rawTs > 0) {
+            transitionDates['failure'] = parseToISODate(formatToBrasiliaDate(new Date(rawTs)));
+          }
+        }
+      }
+      if (order.status === 'in_route' && !transitionDates['in_route']) {
+        if (order.statusUpdatedAt) {
+          const rawTs = Number(order.statusUpdatedAt);
+          if (rawTs > 0) {
+            transitionDates['in_route'] = parseToISODate(formatToBrasiliaDate(new Date(rawTs)));
           }
         }
       }
@@ -1168,41 +1194,123 @@ export default function OrdersTable({
     };
   }, [orders, partnerClients]);
 
-  // Helper to determine if an order matches the selected period by launch date, allocation date, or status transition date
-  const isWithinDatePeriod = (item: any, startDate: string, endDate: string): boolean => {
-    if (!item.launchDateISO && !item.allocatedDateISO && !item.transitionDates?.delivered) return false;
-    // Na data atual do dia ("Hoje"), exibir pedidos lançados no dia OU alocados para entrega no dia OU entregues hoje.
-    const today = getTodayISO();
-    if (startDate === today && endDate === today) {
-      const isLaunchToday = item.launchDateISO === today;
-      const isAllocToday = item.allocatedDateISO === today;
-      const isDeliveredToday = item.order.status === 'delivered' && item.transitionDates?.delivered === today;
-      return isLaunchToday || isAllocToday || isDeliveredToday;
+  // Helper to determine the effective date for a given status when secondary filtering by status is applied
+  const getOrderEffectiveDateForStatus = (item: any, targetStatus: string): string | null => {
+    const { order, transitionDates, allocatedDateISO, launchDateISO } = item;
+    if (!order) return launchDateISO || null;
+
+    if (targetStatus === 'delivered') {
+      if (order.status !== 'delivered' && !transitionDates?.['delivered']) return null;
+      if (transitionDates && transitionDates['delivered']) {
+        return transitionDates['delivered'];
+      }
+      if (order.deliveryProtocol?.signedAt) {
+        const parsed = parseToISODate(order.deliveryProtocol.signedAt.split(' ')[0] || order.deliveryProtocol.signedAt);
+        if (parsed) return parsed;
+      }
+      if (order.deliveredAt) {
+        const parsed = parseToISODate(order.deliveredAt.split(' ')[0] || order.deliveredAt);
+        if (parsed) return parsed;
+      }
+      const rawTs = Number(order.statusUpdatedAt);
+      if (rawTs > 0) {
+        return formatToBrasiliaISODate(new Date(rawTs));
+      }
+      return launchDateISO || null;
     }
-    // Caso um período customizado ou com múltiplos dias seja selecionado:
-    const launchInRange = item.launchDateISO ? (item.launchDateISO >= startDate && item.launchDateISO <= endDate) : false;
-    const allocInRange = item.allocatedDateISO ? (item.allocatedDateISO >= startDate && item.allocatedDateISO <= endDate) : false;
-    const deliveredInRange = (item.order.status === 'delivered' && item.transitionDates?.delivered)
-      ? (item.transitionDates.delivered >= startDate && item.transitionDates.delivered <= endDate)
-      : false;
-    const failureInRange = (item.order.status === 'failure' && item.transitionDates?.failure)
-      ? (item.transitionDates.failure >= startDate && item.transitionDates.failure <= endDate)
-      : false;
-    const cancelledInRange = (item.order.status === 'cancelled' && item.transitionDates?.cancelled)
-      ? (item.transitionDates.cancelled >= startDate && item.transitionDates.cancelled <= endDate)
-      : false;
-    return launchInRange || allocInRange || deliveredInRange || failureInRange || cancelledInRange;
+
+    if (targetStatus === 'cancelled') {
+      if (order.status !== 'cancelled' && !transitionDates?.['cancelled']) return null;
+      if (transitionDates && transitionDates['cancelled']) {
+        return transitionDates['cancelled'];
+      }
+      if (order.cancelledAt) {
+        const parsed = parseToISODate(order.cancelledAt.split(' ')[0] || order.cancelledAt);
+        if (parsed) return parsed;
+      }
+      const rawTs = Number(order.statusUpdatedAt);
+      if (rawTs > 0) {
+        return formatToBrasiliaISODate(new Date(rawTs));
+      }
+      return launchDateISO || null;
+    }
+
+    if (targetStatus === 'failure') {
+      if (order.status !== 'failure' && !transitionDates?.['failure']) return null;
+      if (transitionDates && transitionDates['failure']) {
+        return transitionDates['failure'];
+      }
+      if (order.failureAt || (order as any).occurrenceAt) {
+        const parsed = parseToISODate((order.failureAt || (order as any).occurrenceAt).split(' ')[0]);
+        if (parsed) return parsed;
+      }
+      const rawTs = Number(order.statusUpdatedAt);
+      if (rawTs > 0) {
+        return formatToBrasiliaISODate(new Date(rawTs));
+      }
+      return launchDateISO || null;
+    }
+
+    if (targetStatus === 'in_route') {
+      if (order.status !== 'in_route' && !transitionDates?.['in_route']) return null;
+      if (transitionDates && transitionDates['in_route']) {
+        return transitionDates['in_route'];
+      }
+      const rawTs = Number(order.statusUpdatedAt);
+      if (rawTs > 0) {
+        return formatToBrasiliaISODate(new Date(rawTs));
+      }
+      return allocatedDateISO || launchDateISO || null;
+    }
+
+    if (targetStatus === 'in_progress') {
+      if (order.status !== 'in_progress' && !transitionDates?.['in_progress']) return null;
+      if (transitionDates && transitionDates['in_progress']) {
+        return transitionDates['in_progress'];
+      }
+      return allocatedDateISO || launchDateISO || null;
+    }
+
+    if (targetStatus === 'open') {
+      if (order.status === 'delivered' || order.status === 'cancelled') {
+        return null;
+      }
+      if (launchDateISO && launchDateISO >= startDateFil && launchDateISO <= endDateFil) {
+        return launchDateISO;
+      }
+      if (allocatedDateISO && allocatedDateISO >= startDateFil && allocatedDateISO <= endDateFil) {
+        return allocatedDateISO;
+      }
+      return launchDateISO || allocatedDateISO || null;
+    }
+
+    return launchDateISO || null;
   };
 
-  // Orders strictly within the selected period to power the synchronized count badges
+  // Helper to determine if an order matches the selected period:
+  // 1. Início da filtragem por período (quando status é 'all'): considera a data de solicitação como critério primário soberano.
+  // 2. Quando o filtro secundário (status) for aplicado: sincroniza exibindo todos os pedidos do período referente ao status, independente da data de solicitação.
+  const isWithinDatePeriod = (item: any, startDate: string, endDate: string, appliedStatus?: string): boolean => {
+    if (!appliedStatus || appliedStatus === 'all') {
+      const solicitationDateISO = item.launchDateISO;
+      if (!solicitationDateISO) return false;
+      return solicitationDateISO >= startDate && solicitationDateISO <= endDate;
+    }
+
+    const effectiveDate = getOrderEffectiveDateForStatus(item, appliedStatus);
+    if (!effectiveDate) return false;
+    return effectiveDate >= startDate && effectiveDate <= endDate;
+  };
+
+  // Orders strictly within the selected period and active status to power the synchronized partner and courier counts
   const periodOrders = React.useMemo(() => {
     if (!enableDateFilter) return orders;
     return orders.filter(order => {
       const item = ordersIndex.all.find(i => i.order.id === order.id);
-      if (!item) return true;
-      return isWithinDatePeriod(item, startDateFil, endDateFil);
+      if (!item) return false;
+      return isWithinDatePeriod(item, startDateFil, endDateFil, activeTab);
     });
-  }, [orders, ordersIndex, enableDateFilter, startDateFil, endDateFil]);
+  }, [orders, ordersIndex, enableDateFilter, startDateFil, endDateFil, activeTab]);
 
   const activePartner = selectedPartnerFilter !== 'all' ? selectedPartnerFilter : detSearchClientCode;
   const activeCourier = detSearchCourierId !== 'all' ? detSearchCourierId : (selectedCourierId || 'all');
@@ -1301,33 +1409,49 @@ export default function OrdersTable({
       cancelled: 0,
     };
 
-    let scopedOrders = periodOrders;
-
-    // Filter by selected partner if active
+    let baseCandidates = ordersIndex.all;
     if (activePartner !== 'all') {
-      scopedOrders = scopedOrders.filter(o => isOrderMatchingPartner(o, activePartner, partnerClients));
+      baseCandidates = baseCandidates.filter(i => isOrderMatchingPartner(i.order, activePartner, partnerClients));
     }
-
-    // Filter by selected courier if active
     if (activeCourier !== 'all') {
       if (activeCourier === 'unallocated') {
-        scopedOrders = scopedOrders.filter(o => !o.courierId);
+        baseCandidates = baseCandidates.filter(i => !i.order.courierId);
       } else {
-        scopedOrders = scopedOrders.filter(o => o.courierId === activeCourier);
+        baseCandidates = baseCandidates.filter(i => i.order.courierId === activeCourier);
       }
     }
 
-    counts.all = scopedOrders.length;
-    scopedOrders.forEach(o => {
-      if (counts[o.status] !== undefined) {
-        counts[o.status] = (counts[o.status] || 0) + 1;
+    if (!enableDateFilter) {
+      counts.all = baseCandidates.length;
+      baseCandidates.forEach(i => {
+        const s = i.order.status;
+        if (counts[s] !== undefined) counts[s]++;
+        if (s !== 'delivered' && s !== 'cancelled') counts.open++;
+      });
+      return counts;
+    }
+
+    baseCandidates.forEach(i => {
+      const s = i.order.status;
+
+      // Início da filtragem por período: data de solicitação para 'all'
+      if (isWithinDatePeriod(i, startDateFil, endDateFil, 'all')) {
+        counts.all++;
       }
-      if (o.status !== 'delivered' && o.status !== 'cancelled') {
-        counts.open = (counts.open || 0) + 1;
+
+      // Quando filtro secundário por status for aplicado: sincronizado independente da data de solicitação
+      if (counts[s] !== undefined && isWithinDatePeriod(i, startDateFil, endDateFil, s)) {
+        counts[s]++;
+      }
+
+      // Em aberto
+      if (s !== 'delivered' && s !== 'cancelled' && isWithinDatePeriod(i, startDateFil, endDateFil, 'open')) {
+        counts.open++;
       }
     });
+
     return counts;
-  }, [periodOrders, activePartner, activeCourier, partnerClients]);
+  }, [ordersIndex, activePartner, activeCourier, partnerClients, enableDateFilter, startDateFil, endDateFil]);
 
   // Filter orders based on active Tab + searchTerm + smart date ranges + cepSearchTerm + Partner + Courier
   const filteredOrdersBeforeRegion = React.useMemo(() => {
@@ -1455,9 +1579,9 @@ export default function OrdersTable({
         }
       }
 
-      // 3. Smart Date Range filter: Toda pesquisa por período DEVE respeitar o filtro de período escolhido
+      // 3. Smart Date Range filter: Início da filtragem por data de solicitação; sincronizado por status quando filtro secundário aplicado
       if (enableDateFilter) {
-        if (!isWithinDatePeriod(item, startDateFil, endDateFil)) {
+        if (!isWithinDatePeriod(item, startDateFil, endDateFil, activeTab)) {
           continue;
         }
       }
@@ -2784,8 +2908,8 @@ export default function OrdersTable({
               className="w-full pl-9 pr-7 h-10 bg-white border border-slate-200 hover:border-emerald-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15 rounded-xl text-xs font-bold text-slate-700 transition-all shadow-2xs cursor-pointer appearance-none truncate"
               title="Pesquisa por Status"
             >
-              <option value="open">Status: Em Aberto ({statusCountsInPeriod.open ?? 0})</option>
               <option value="all">Status: Todos ({statusCountsInPeriod.all ?? 0})</option>
+              <option value="open">Em Aberto ({statusCountsInPeriod.open ?? 0})</option>
               <option value="pending">Pendentes ({statusCountsInPeriod.pending ?? 0})</option>
               <option value="in_progress">Em Andamento ({statusCountsInPeriod.in_progress ?? 0})</option>
               <option value="in_route">Em Rota ({statusCountsInPeriod.in_route ?? 0})</option>
@@ -4691,7 +4815,7 @@ export default function OrdersTable({
                             </td>
                           );
                         case 'dataSolicitacao': {
-                          const rawInputDate = order.dataSolicitacao || (order.createdAt ? formatToBrasiliaDate(order.createdAt) : '') || (order.allocatedDate ? formatToBrasiliaDate(order.allocatedDate) : '');
+                          const rawInputDate = order.dataSolicitacao || (order.createdAt ? formatToBrasiliaDate(order.createdAt) : '') || (order.created_at ? formatToBrasiliaDate(order.created_at) : '');
                           const displayDate = rawInputDate ? normalizeIncomingDateToBrasilia(rawInputDate) : '-';
                           return (
                             <td key="dataSolicitacao" className={`py-0.5 px-1 text-center border-r border-slate-100 font-medium text-[9.5px] ${col.width || ''}`} title={`Data de Imputação: ${displayDate}`}>

@@ -72,7 +72,7 @@ import DiaryTab from './components/DiaryTab';
 import LoginScreen from './components/LoginScreen';
 import AppShareModal from './components/AppShareModal';
 import { registerPushNotifications, onMessageReceived } from './lib/pushNotifications';
-import { collection, getDocs, doc, setDoc as firestoreSetDoc, deleteDoc as firestoreDeleteDoc, updateDoc as firestoreUpdateDoc, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc as firestoreSetDoc, deleteDoc as firestoreDeleteDoc, updateDoc as firestoreUpdateDoc, onSnapshot, query, where, limit } from 'firebase/firestore';
 import { db, isFirebaseConfigured, isLiveFirebase, OperationType, handleFirestoreError, isFirestoreQuotaExceeded, onFirestoreQuotaExceeded } from './lib/firebase';
 import OperatorsTab from './components/OperatorsTab';
 import HubsTab from './components/HubsTab';
@@ -316,18 +316,17 @@ export const isDriverMatchingSession = (driverUser: any, searchParams: URLSearch
   // If no driver specified in URL, existing valid driver session is accepted
   if (!urlId && !urlPhone) return true;
 
-  const normMatchPhone = (p: string) => String(p || '').replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
-  const userCleanPhone = normMatchPhone(driverUser.phone || driverUser.login || '');
-  const urlCleanPhone = normMatchPhone(urlPhone || '');
-  const urlIdCleanPhone = normMatchPhone(urlId || '');
+  const userCleanPhone = String(driverUser.phone || driverUser.login || '').replace(/\D/g, '');
+  const urlCleanPhone = String(urlPhone || '').replace(/\D/g, '');
+  const urlIdCleanPhone = String(urlId || '').replace(/\D/g, '');
 
   if (urlId && (driverUser.id === urlId || driverUser.login === urlId)) {
     return true;
   }
-  if (urlCleanPhone && userCleanPhone && urlCleanPhone.length >= 10 && userCleanPhone === urlCleanPhone) {
+  if (urlCleanPhone && userCleanPhone && (userCleanPhone === urlCleanPhone || userCleanPhone.endsWith(urlCleanPhone) || urlCleanPhone.endsWith(userCleanPhone))) {
     return true;
   }
-  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 10 && userCleanPhone === urlIdCleanPhone) {
+  if (urlIdCleanPhone && userCleanPhone && urlIdCleanPhone.length >= 8 && (userCleanPhone === urlIdCleanPhone || userCleanPhone.endsWith(urlIdCleanPhone) || urlIdCleanPhone.endsWith(userCleanPhone))) {
     return true;
   }
   
@@ -388,29 +387,14 @@ export default function App() {
       return [];
     }
   });
-  const [isNewPageFilter] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      return params.has('status');
-    }
-    return false;
-  });
-  const [dashboardFilterStatus, setDashboardFilterStatus] = useState<OrderStatus | 'all' | 'open' | null>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const s = params.get('status');
-      if (s) return s as OrderStatus | 'all' | 'open';
-    }
-    return null;
-  });
+  const [dashboardFilterStatus, setDashboardFilterStatus] = useState<OrderStatus | 'all' | 'open'>('all');
   const [dashboardFilterStart, setDashboardFilterStart] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const s = params.get('start');
       if (s) return s;
     }
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return getTodayISO();
   });
   const [dashboardFilterEnd, setDashboardFilterEnd] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -418,8 +402,7 @@ export default function App() {
       const e = params.get('end');
       if (e) return e;
     }
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return getTodayISO();
   });
   const [dashboardFilterEnabled, setDashboardFilterEnabled] = useState<boolean>(true);
   const [regionDistribution, setRegionDistribution] = useState<RegionDistribution[]>([]);
@@ -1234,6 +1217,40 @@ const markOrderAsDeleted = (orderId: string) => {
           history: (primary.history && primary.history.length >= (secondary.history?.length || 0)) ? primary.history : secondary.history
         };
       } else if (
+        !isLocalDelivered && (
+          (incoming.status === 'in_route' && local.status !== 'in_route') ||
+          (incoming.status === 'failure' && local.status !== 'failure') ||
+          (incoming.status === 'in_progress' && local.status === 'pending') ||
+          (incomingVer > localVer) ||
+          (incomingTs > localTs && incoming.status !== local.status)
+        )
+      ) {
+        resolved = {
+          ...local,
+          ...incoming,
+          status: incoming.status as OrderStatus,
+          statusSincronizado: incoming.status,
+          status_sincronizado: incoming.status,
+          versionTimestamp: Math.max(localTs, incomingTs, Date.now()),
+          updatedAt: Math.max(localTs, incomingTs, Date.now()),
+          version: Math.max(localVer, incomingVer),
+          statusUpdatedAt: incoming.statusUpdatedAt || incomingTs || Date.now(),
+          courierId: resolvedCourierId,
+          valorCondutor: resolvedValorCondutor !== undefined ? resolvedValorCondutor : incoming.valorCondutor,
+          allocatedDate: resolvedAllocatedDate,
+          dispositivoCondutor: resolvedDispositivo,
+          courierName: resolvedCourierName,
+          allocatedCourierName: resolvedCourierName,
+          nomeCondutor: resolvedCourierName,
+          deliveryProtocol: incoming.deliveryProtocol || local.deliveryProtocol,
+          proofPhotoUrl: incoming.proofPhotoUrl || local.proofPhotoUrl,
+          signatureDataUrl: incoming.signatureDataUrl || local.signatureDataUrl,
+          receiverName: incoming.receiverName || local.receiverName,
+          receiverDoc: incoming.receiverDoc || local.receiverDoc,
+          deliveredAt: incoming.deliveredAt || local.deliveredAt,
+          history: (incoming.history && incoming.history.length >= (local.history?.length || 0)) ? incoming.history : local.history
+        };
+      } else if (
         localTs > incomingTs ||
         (localVer > incomingVer && localTs >= incomingTs) ||
         (local.courierId !== incoming.courierId && localTs >= incomingTs - 5000 && localVer >= incomingVer) ||
@@ -1630,12 +1647,10 @@ const markOrderAsDeleted = (orderId: string) => {
     console.log("[Firestore Sync] Ativando ouvintes em tempo real para Firestore...");
 
     let isDetached = false;
-    // Optimize Firestore reads: listen to recently-updated orders across ALL statuses
-    // (including 'delivered'/'cancelled') so driver status changes reflect in the admin panel
+    // Optimize Firestore reads: listen only to active orders to avoid pulling all historical orders on start
     const activeOrdersQuery = query(
       collection(db, 'orders'),
-      orderBy('versionTimestamp', 'desc'),
-      limit(300)
+      where('status', 'in', ['pending', 'in_progress', 'in_route', 'failure'])
     );
     const unsubscribeOrders = onSnapshot(activeOrdersQuery, (snapshot) => {
       if (isDetached) return;
@@ -1741,6 +1756,283 @@ const markOrderAsDeleted = (orderId: string) => {
     };
   }, [db, firestoreQuotaActive]);
 
+  // --------------------------------------------------------------------------
+  // Real-time Fleet Synchronization Engine (Server-Sent Events + BroadcastChannel + Delta Polling)
+  // Ensures all status updates made on driver devices instantly reflect on the Admin Dashboard
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    let isMounted = true;
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+    let deltaInterval: any = null;
+    let lastDeltaTimestamp = Date.now();
+
+    const notifyOccurrenceAlert = (incomingOrder: Order) => {
+      const isOcorrencia = incomingOrder.status === 'cancelled' || incomingOrder.status === 'failure';
+      if (!isOcorrencia) return;
+
+      const courier = couriers.find((c: any) => c.id === incomingOrder.courierId);
+      const courierName = courier ? courier.name : (incomingOrder.nomeCondutor || 'Entregador');
+      const alertId = `alert-${Date.now()}-${incomingOrder.id}`;
+      const nowStr = formatToBrasiliaTime(new Date(), true);
+
+      setOcorrenciaAlerts(prevAlerts => {
+        if (prevAlerts.some(a => a.orderId === incomingOrder.id)) return prevAlerts;
+        try { playOcorrenciaSound(); } catch (_) {}
+        return [{
+          id: alertId,
+          orderId: incomingOrder.id,
+          customerName: incomingOrder.customerName || 'Cliente',
+          courierName: courierName,
+          time: nowStr,
+          status: incomingOrder.status,
+          region: incomingOrder.region || 'São Paulo'
+        }, ...prevAlerts];
+      });
+      setNotifications(n => n + 1);
+    };
+
+    const applyIncomingOrder = (incomingOrder: Order) => {
+      if (!incomingOrder || !incomingOrder.id) return;
+      const nowStr = formatToBrasiliaTime(new Date(), true);
+      setSyncStatus('online');
+      setSyncTime(nowStr);
+
+      setOrders(prevOrders => {
+        const deletedIds = getDeletedOrderIds();
+        if (isOrderDeleted(incomingOrder, deletedIds)) {
+          return prevOrders.filter(o => o.id !== incomingOrder.id);
+        }
+
+        const idx = prevOrders.findIndex(o => {
+          if (!o) return false;
+          if (o.id === incomingOrder.id) return true;
+          if (o.pedido && incomingOrder.pedido && String(o.pedido).trim().toLowerCase() === String(incomingOrder.pedido).trim().toLowerCase()) return true;
+          const cleanO = String(o.id || '').trim().toUpperCase();
+          const cleanInc = String(incomingOrder.id || '').trim().toUpperCase();
+          if (cleanO === cleanInc) return true;
+          const noPedO = cleanO.replace(/^PED-/i, '');
+          const noPedInc = cleanInc.replace(/^PED-/i, '');
+          if (noPedO && noPedInc && noPedO === noPedInc) return true;
+          const digO = cleanO.replace(/\D/g, '').replace(/^0+/, '');
+          const digInc = cleanInc.replace(/\D/g, '').replace(/^0+/, '');
+          if (digO && digInc && digO === digInc) return true;
+          if (o.codigoCliente && o.pedido && incomingOrder.codigoCliente && incomingOrder.pedido) {
+            if (matchClientCode(o.codigoCliente, incomingOrder.codigoCliente) && String(o.pedido).trim().toLowerCase() === String(incomingOrder.pedido).trim().toLowerCase()) return true;
+          }
+          return false;
+        });
+
+        if (idx >= 0) {
+          const oldOrder = prevOrders[idx];
+          const becameOcorrencia = 
+            (incomingOrder.status === 'cancelled' || incomingOrder.status === 'failure') &&
+            (oldOrder.status !== 'cancelled' && oldOrder.status !== 'failure');
+
+          if (becameOcorrencia) {
+            notifyOccurrenceAlert(incomingOrder);
+          }
+
+          const mergedList = [...prevOrders];
+          mergedList[idx] = {
+            ...oldOrder,
+            ...incomingOrder,
+            id: oldOrder.id || incomingOrder.id,
+            status: incomingOrder.status,
+            statusSincronizado: incomingOrder.status,
+            status_sincronizado: incomingOrder.status,
+            version: Math.max(Number(oldOrder.version) || 0, Number(incomingOrder.version) || 0) + 1,
+            versionTimestamp: Math.max(Number(oldOrder.versionTimestamp) || 0, Number(incomingOrder.versionTimestamp) || Date.now()),
+            updatedAt: Math.max(Number(oldOrder.updatedAt) || 0, Number(incomingOrder.updatedAt) || Date.now()),
+            statusUpdatedAt: incomingOrder.statusUpdatedAt || Date.now(),
+            deliveryProtocol: incomingOrder.deliveryProtocol || oldOrder.deliveryProtocol,
+            proofPhotoUrl: incomingOrder.proofPhotoUrl || oldOrder.proofPhotoUrl,
+            signatureDataUrl: incomingOrder.signatureDataUrl || oldOrder.signatureDataUrl,
+            receiverName: incomingOrder.receiverName || oldOrder.receiverName,
+            receiverDoc: incomingOrder.receiverDoc || oldOrder.receiverDoc,
+            deliveredAt: incomingOrder.deliveredAt || oldOrder.deliveredAt,
+            courierId: incomingOrder.courierId !== undefined ? incomingOrder.courierId : oldOrder.courierId,
+            history: (incomingOrder.history && incomingOrder.history.length >= (oldOrder.history?.length || 0)) ? incomingOrder.history : oldOrder.history
+          };
+          try {
+            localStorage.setItem('vinimap_orders', JSON.stringify(mergedList));
+          } catch (_) {}
+          return mergedList;
+        } else {
+          notifyOccurrenceAlert(incomingOrder);
+          const updated = [incomingOrder, ...prevOrders];
+          try {
+            localStorage.setItem('vinimap_orders', JSON.stringify(updated));
+          } catch (_) {}
+          return updated;
+        }
+      });
+
+      if (incomingOrder.courierId) {
+        setCouriers(prevCouriers => prevCouriers.map(c => {
+          if (c.id === incomingOrder.courierId) {
+            if (incomingOrder.status === 'delivered') {
+              return { ...c, ordersCompleted: (c.ordersCompleted || 0) + 1 };
+            } else if (incomingOrder.status === 'in_route') {
+              return { ...c, status: 'busy' };
+            }
+          }
+          return c;
+        }));
+      }
+    };
+
+    // 1. Cross-Tab / Cross-Window BroadcastChannel
+    let broadcastChannel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        broadcastChannel = new BroadcastChannel('vinimap_fleet_channel');
+        broadcastChannel.onmessage = (event) => {
+          if (!isMounted || !event?.data) return;
+          const { type, order, orderId, courier, courierId } = event.data;
+          if (type === 'order_updated' && order) {
+            applyIncomingOrder(order);
+          } else if (type === 'order_deleted' && orderId) {
+            setOrders(prev => prev.filter(o => o.id !== orderId));
+          } else if (type === 'courier_updated' && courier) {
+            setCouriers(prev => prev.map(c => c.id === courierId ? { ...c, ...courier } : c));
+          }
+        };
+      }
+    } catch (_) {}
+
+    // 2. Server-Sent Events (SSE) Stream
+    const connectSSE = () => {
+      if (!isMounted) return;
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+        eventSource = new EventSource('/api/events');
+
+        eventSource.addEventListener('ping', () => {
+          if (!isMounted) return;
+          setSyncStatus('online');
+        });
+
+        eventSource.addEventListener('order_updated', (e: MessageEvent) => {
+          if (!isMounted) return;
+          try {
+            const data = JSON.parse(e.data);
+            if (data?.order) {
+              applyIncomingOrder(data.order);
+            }
+          } catch (_) {}
+        });
+
+        eventSource.addEventListener('order_created', (e: MessageEvent) => {
+          if (!isMounted) return;
+          try {
+            const data = JSON.parse(e.data);
+            if (data?.order) {
+              applyIncomingOrder(data.order);
+            }
+          } catch (_) {}
+        });
+
+        eventSource.addEventListener('order_deleted', (e: MessageEvent) => {
+          if (!isMounted) return;
+          try {
+            const data = JSON.parse(e.data);
+            if (data?.orderId) {
+              setOrders(prev => prev.filter(o => o.id !== data.orderId));
+            }
+          } catch (_) {}
+        });
+
+        eventSource.addEventListener('orders_bulk_updated', () => {
+          if (!isMounted) return;
+          fetchDatabase(false).catch(() => {});
+        });
+
+        eventSource.addEventListener('orders_bulk_allocated', () => {
+          if (!isMounted) return;
+          fetchDatabase(false).catch(() => {});
+        });
+
+        eventSource.addEventListener('courier_updated', (e: MessageEvent) => {
+          if (!isMounted) return;
+          try {
+            const data = JSON.parse(e.data);
+            if (data?.courier) {
+              setCouriers(prev => prev.map(c => c.id === data.courier.id ? { ...c, ...data.courier } : c));
+            }
+          } catch (_) {}
+        });
+
+        eventSource.onerror = () => {
+          if (!isMounted) return;
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+              reconnectTimeout = null;
+              connectSSE();
+            }, 3000);
+          }
+        };
+      } catch (err) {
+        console.debug('[SSE] Conexão SSE indisponível, usando fallback delta polling:', err);
+      }
+    };
+
+    connectSSE();
+
+    // 3. Fallback Delta Polling (every 4 seconds for resilience)
+    const runDeltaSync = async () => {
+      if (!isMounted || (typeof document !== 'undefined' && document.hidden)) return;
+      try {
+        const res = await fetch(`/api/sync/delta?since=${lastDeltaTimestamp}`);
+        if (!res.ok) return;
+        const delta = await res.json();
+        lastDeltaTimestamp = delta.timestamp || Date.now();
+
+        if (Array.isArray(delta.orders) && delta.orders.length > 0) {
+          delta.orders.forEach((ord: Order) => applyIncomingOrder(ord));
+        }
+        if (Array.isArray(delta.couriers) && delta.couriers.length > 0) {
+          setCouriers(prev => {
+            const copy = [...prev];
+            delta.couriers.forEach((c: Courier) => {
+              const idx = copy.findIndex(item => item.id === c.id);
+              if (idx >= 0) copy[idx] = { ...copy[idx], ...c };
+            });
+            return copy;
+          });
+        }
+      } catch (_) {}
+    };
+
+    deltaInterval = setInterval(runDeltaSync, 4000);
+
+    const onVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        runDeltaSync();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    return () => {
+      isMounted = false;
+      if (eventSource) eventSource.close();
+      if (broadcastChannel) broadcastChannel.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (deltaInterval) clearInterval(deltaInterval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, [couriers]);
+
   useEffect(() => {
     // Proactively hydrate state from IndexedDB on startup
     const hydrateFromIndexedDB = async () => {
@@ -1770,7 +2062,7 @@ const markOrderAsDeleted = (orderId: string) => {
           const initialDbOrders = dbOrders.filter(o => {
             if (!o || isOrderDeleted(o, deletedIds)) return false;
             const isActive = o.status === 'pending' || o.status === 'in_progress' || o.status === 'in_route' || o.status === 'failure';
-            const rawDateStr = o.dataSolicitacao || (typeof o.createdAt === 'string' ? o.createdAt : (typeof o.createdAt === 'number' ? formatToBrasiliaDate(new Date(o.createdAt)) : ''));
+            const rawDateStr = o.dataSolicitacao || (typeof o.createdAt === 'string' ? o.createdAt : (typeof o.createdAt === 'number' ? formatToBrasiliaDate(new Date(o.createdAt)) : '')) || o.created_at || '';
             const orderDate = parseToISODate(rawDateStr);
             return isActive || (orderDate === todayIso);
           });
@@ -1849,24 +2141,6 @@ const markOrderAsDeleted = (orderId: string) => {
       unsubscribeFCM();
     };
   }, []);
-
-  // Polling de contingência (independente do Firestore): mantém o painel do ADM
-  // sincronizado com o servidor mesmo quando o Firestore está com cota esgotada.
-  // Atualiza pedidos ativos/de hoje a cada 30s e o histórico completo a cada 5min.
-  useEffect(() => {
-    const pollFast = setInterval(() => {
-      fetchDatabase(false, { initialOnly: true }).catch(() => {});
-    }, 30 * 1000);
-    const pollFull = setInterval(() => {
-      if (isFullHistoryLoaded) {
-        fetchDatabase(false, { loadAll: true }).catch(() => {});
-      }
-    }, 5 * 60 * 1000);
-    return () => {
-      clearInterval(pollFast);
-      clearInterval(pollFull);
-    };
-  }, [isFullHistoryLoaded]);
 
   // Lazy load orders for a specific date range when selected by the administrator
   const lazyLoadPeriod = async (startDate: string, endDate: string) => {
@@ -2885,6 +3159,19 @@ const markOrderAsDeleted = (orderId: string) => {
       });
       await ensureJsonResponse(rOrd);
 
+      // Instant cross-tab notification via BroadcastChannel
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('vinimap_fleet_channel');
+          bc.postMessage({
+            type: 'order_updated',
+            orderId: actualOrderId,
+            order: { ...(activeOrder || {}), ...body, id: actualOrderId }
+          });
+          bc.close();
+        }
+      } catch (_) {}
+
       // Cloud Firestore Direct Update for multi-device real-time sync
       if (db) {
         try {
@@ -3865,7 +4152,7 @@ const markOrderAsDeleted = (orderId: string) => {
               searchTerm={searchTerm} 
               onSearchTermChange={setSearchTerm}
               onResetDashboardFilterStatus={() => {
-                setDashboardFilterStatus(null);
+                setDashboardFilterStatus('all');
                 setDashboardFilterStart(undefined);
                 setDashboardFilterEnd(undefined);
               }}
@@ -3887,7 +4174,10 @@ const markOrderAsDeleted = (orderId: string) => {
               initialEnableDateFilter={dashboardFilterEnabled !== undefined ? dashboardFilterEnabled : true}
               initialStartDate={dashboardFilterStart}
               initialEndDate={dashboardFilterEnd}
-              statusFilter={dashboardFilterStatus || undefined}
+              statusFilter={dashboardFilterStatus || 'all'}
+              onStatusFilterChange={(newStatus) => {
+                setDashboardFilterStatus(newStatus);
+              }}
               onRefetchDatabase={(options) => fetchDatabase(true, options)}
               isSyncing={isSyncing}
               onLoadPeriod={lazyLoadPeriod}
@@ -5126,11 +5416,11 @@ const markOrderAsDeleted = (orderId: string) => {
                   setDashboardFilterEnd(end);
                   setDashboardFilterEnabled(true);
                 }}
-                activeStatus={dashboardFilterStatus || 'open'}
+                activeStatus={dashboardFilterStatus || 'all'}
                 onCardClick={(status, startDate, endDate) => {
-                  setDashboardFilterStatus(status);
-                  setDashboardFilterStart(startDate);
-                  setDashboardFilterEnd(endDate);
+                  setDashboardFilterStatus(prev => (prev === status ? 'all' : status));
+                  if (startDate) setDashboardFilterStart(startDate);
+                  if (endDate) setDashboardFilterEnd(endDate);
                   setDashboardFilterEnabled(true);
                 }}
               />
@@ -5147,7 +5437,7 @@ const markOrderAsDeleted = (orderId: string) => {
                   searchTerm={searchTerm} 
                   onSearchTermChange={setSearchTerm}
                   onResetDashboardFilterStatus={() => {
-                    setDashboardFilterStatus(null);
+                    setDashboardFilterStatus('all');
                     setDashboardFilterStart(undefined);
                     setDashboardFilterEnd(undefined);
                     setSelectedPartnerId('all');
@@ -5175,7 +5465,10 @@ const markOrderAsDeleted = (orderId: string) => {
                   initialEnableDateFilter={dashboardFilterEnabled !== undefined ? dashboardFilterEnabled : true}
                   initialStartDate={dashboardFilterStart}
                   initialEndDate={dashboardFilterEnd}
-                  statusFilter={dashboardFilterStatus || undefined}
+                  statusFilter={dashboardFilterStatus || 'all'}
+                  onStatusFilterChange={(newStatus) => {
+                    setDashboardFilterStatus(newStatus);
+                  }}
                   onRefetchDatabase={(options) => fetchDatabase(true, options)}
                   isSyncing={isSyncing}
                   onLoadPeriod={lazyLoadPeriod}
@@ -5191,274 +5484,6 @@ const markOrderAsDeleted = (orderId: string) => {
     }
   };
 
-
-  // Standalone full screen orders status report view
-  if (isNewPageFilter && dashboardFilterStatus) {
-    const getTodayISO = (): string => formatToBrasiliaISODate(new Date());
-
-    const getYesterdayISO = (): string => {
-      const d = getBrasiliaDate();
-      d.setDate(d.getDate() - 1);
-      return formatToBrasiliaISODate(d);
-    };
-
-    const todayISO = getTodayISO();
-    const yesterdayISO = getYesterdayISO();
-
-    const parseToISODateInApp = (str: string | undefined): string => {
-      return parseToISODate(str, yesterdayISO);
-    };
-
-    const filteredDashboardOrders = orders.filter(o => {
-      if (!dashboardFilterStatus) return false;
-      const isStatusMatch = dashboardFilterStatus === 'all' ? true : o.status === dashboardFilterStatus;
-      if (!isStatusMatch) return false;
-
-      let transitionDateISO: string | null = null;
-      const statusToCheck = (dashboardFilterStatus !== 'all') ? dashboardFilterStatus : (o.status === 'delivered' ? 'delivered' : null);
-      if (statusToCheck && o.history && Array.isArray(o.history)) {
-        const entry = [...o.history].reverse().find(h => h && h.status === statusToCheck);
-        if (entry && entry.time) {
-          const parts = entry.time.split(' ');
-          const datePart = parts[0];
-          if (datePart) {
-            transitionDateISO = parseToISODateInApp(datePart);
-          }
-        }
-      }
-      const launchDateISO = parseToISODateInApp(o.dataSolicitacao);
-      const effectiveDateISO = transitionDateISO || launchDateISO;
-      const allocatedDateISO = o.allocatedDate ? parseToISODateInApp(o.allocatedDate) : null;
-
-      const matchesLaunchDate = launchDateISO >= dashboardFilterStart && launchDateISO <= dashboardFilterEnd;
-      const matchesEffectiveDate = effectiveDateISO >= dashboardFilterStart && effectiveDateISO <= dashboardFilterEnd;
-      const matchesAllocatedDate = Boolean(allocatedDateISO && allocatedDateISO >= dashboardFilterStart && allocatedDateISO <= dashboardFilterEnd);
-
-      const isActionStatus = ['delivered', 'cancelled', 'failure'].includes(dashboardFilterStatus);
-      if (isActionStatus) {
-        return matchesEffectiveDate;
-      }
-      return matchesLaunchDate || matchesEffectiveDate || matchesAllocatedDate;
-    });
-
-    return (
-      <div className="min-h-screen bg-slate-100 flex flex-col p-6 overflow-y-auto print:p-0 print:bg-white animate-fade-in select-text">
-        {/* Header bar (hidden during print) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print:hidden">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-indigo-50 border border-indigo-150 rounded-2xl text-indigo-600">
-              <ClipboardCheck className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest bg-indigo-150 text-indigo-800 px-2.5 py-0.5 rounded-full select-none">
-                  Filtro Standalone por Status
-                </span>
-                <span className="text-xs text-slate-400 font-semibold">
-                  {filteredDashboardOrders.length} {filteredDashboardOrders.length === 1 ? 'pedido localizado' : 'pedidos localizados'}
-                </span>
-              </div>
-              <h2 className="text-xl font-bold text-slate-800 mt-1">
-                Pedidos: {
-                  dashboardFilterStatus === 'all' ? 'Todos os Pedidos' :
-                  dashboardFilterStatus === 'pending' ? 'Não Iniciado' :
-                  dashboardFilterStatus === 'in_progress' ? 'Em Andamento' :
-                  dashboardFilterStatus === 'in_route' ? 'Entregando' :
-                  dashboardFilterStatus === 'failure' ? 'Ocorrência' :
-                  dashboardFilterStatus === 'delivered' ? 'Concluído' :
-                  dashboardFilterStatus === 'cancelled' ? 'Cancelado' : 'Em Aberto'
-                }
-              </h2>
-              <p className="text-[11px] text-slate-450 font-semibold mt-0.5">
-                Ref. Período de Solicitação de <span className="font-mono text-slate-600 font-bold">{dashboardFilterStart.split('-').reverse().join('/')}</span> até <span className="font-mono text-slate-600 font-bold">{dashboardFilterEnd.split('-').reverse().join('/')}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Printing button */}
-            <button
-              type="button"
-              onClick={() => {
-                setTimeout(() => {
-                  window.print();
-                }, 150);
-              }}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <Printer className="h-4 w-4" />
-              <span>Exportar para Impressão (A4)</span>
-            </button>
-
-            {/* Export CSV button */}
-            <button
-              type="button"
-              onClick={() => exportOrdersToCSV(filteredDashboardOrders, partnerClients)}
-              className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-650 font-bold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <FileText className="h-4 w-4 text-emerald-500" />
-              <span>Exportar CSV / Planilha</span>
-            </button>
-
-            {/* Close overlay button */}
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  window.close();
-                } catch (e) {}
-                // fallback: go to main app by clearing URL search parameters
-                window.location.href = window.location.origin + window.location.pathname;
-              }}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-            >
-              <X className="h-4 w-4" />
-              <span>Voltar ao Sistema</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Main interactive Table wrapper (hidden during print) */}
-        <div className="bg-white rounded-3xl border border-slate-100 p-6 flex-1 shadow-md print:hidden">
-          {filteredDashboardOrders.length > 0 ? (
-            <OrdersTable 
-              orders={filteredDashboardOrders} 
-              onUpdateStatus={handleUpdateOrderStatus} 
-              onBulkUpdateStatus={handleBulkUpdateStatus}
-              onBulkAllocateCourier={handleBulkAllocateCourier}
-              searchTerm={searchTerm} 
-              onSearchTermChange={setSearchTerm}
-              onResetDashboardFilterStatus={() => {
-                setDashboardFilterStatus(null);
-                setDashboardFilterStart(undefined);
-                setDashboardFilterEnd(undefined);
-              }}
-              partnerClients={partnerClients}
-              couriers={couriers}
-              hubs={hubs}
-              freightRules={freightRules}
-              onAllocateCourier={handleAllocateCourier}
-              onDeallocateCourier={handleDeallocateCourier}
-              onEditOrder={handleEditOrder}
-              onDeleteOrder={handleDeleteOrder}
-              onAddOrder={handleAddOrder}
-              initialEnableDateFilter={true}
-              initialStartDate={dashboardFilterStart}
-              initialEndDate={dashboardFilterEnd}
-              currentUser={currentUser}
-              selectedCourierId={selectedCourierId}
-              setSelectedCourierId={setSelectedCourierId}
-              onDateFilterChange={handleDateFilterChange}
-              onRefetchDatabase={(options) => fetchDatabase(true, options)}
-              isSyncing={isSyncing}
-              onLoadPeriod={lazyLoadPeriod}
-              onLoadFullHistory={lazyLoadFullHistory}
-              isFullHistoryLoaded={isFullHistoryLoaded}
-              totalOrdersInDb={totalOrdersInDb}
-              isLoadingPeriod={isLoadingPeriod}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <ClipboardCheck className="h-12 w-12 text-slate-305 stroke-[1.5] mb-2 animate-bounce" />
-              <h4 className="text-sm font-bold text-slate-705">Nenhum registro para este período</h4>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm">Nenhum pedido foi encontrado neste status no intervalo selecionado.</p>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    window.close();
-                  } catch (e) {}
-                  window.location.href = window.location.origin + window.location.pathname;
-                }}
-                className="mt-4 px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors cursor-pointer"
-              >
-                Voltar ao Painel Principal
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Hidden print layout wrapper (only active during print via visibility styles) */}
-        <div id="printable-area" className="hidden print:block text-slate-950 bg-white p-6 font-sans w-full">
-          <div className="flex justify-between items-start border-b-2 border-slate-950 pb-4 mb-6">
-            <div>
-              <h1 className="text-xl font-black uppercase text-slate-950 tracking-tight">Relatório Despacho de Entregas</h1>
-              <p className="text-xs text-slate-600 mt-1">
-                Status Filtro: <span className="font-extrabold uppercase text-slate-950 text-indigo-800">
-                  {
-                    dashboardFilterStatus === 'all' ? 'Todos os Pedidos' :
-                    dashboardFilterStatus === 'pending' ? 'Não Iniciado' :
-                    dashboardFilterStatus === 'in_progress' ? 'Em Andamento' :
-                    dashboardFilterStatus === 'in_route' ? 'Entregando' :
-                    dashboardFilterStatus === 'failure' ? 'Ocorrência' :
-                    dashboardFilterStatus === 'delivered' ? 'Concluído' :
-                    dashboardFilterStatus === 'cancelled' ? 'Cancelado' : 'Em Aberto'
-                  }
-                </span>
-              </p>
-              <p className="text-xs text-slate-600">
-                Período: <span className="font-mono font-bold text-slate-800">{dashboardFilterStart.split('-').reverse().join('/')} até {dashboardFilterEnd.split('-').reverse().join('/')}</span>
-              </p>
-            </div>
-            <div className="text-right">
-              <h2 className="text-base font-black text-slate-950 uppercase tracking-wide">ViniMap Logística</h2>
-              <p className="text-[9px] text-slate-500 mt-0.5">Emitido em: {new Date().toLocaleString('pt-BR')}</p>
-            </div>
-          </div>
-
-          <div className="mb-4 text-[10px] font-bold text-slate-800 grid grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
-            <div>Total de Pedidos: <span className="font-mono font-black">{filteredDashboardOrders.length}</span></div>
-            <div>Faturamento no Filtro: <span className="font-mono font-black">R$ {filteredDashboardOrders.reduce((acc, o) => acc + (o.value || 0), 0).toFixed(2).replace('.', ',')}</span></div>
-            <div>Condutores Engajados: <span className="font-mono font-black">{Array.from(new Set(filteredDashboardOrders.filter(o => o.courierId).map(o => o.courierId))).length}</span></div>
-          </div>
-
-          <table className="w-full text-[9px] text-left border-collapse border border-slate-300">
-            <thead>
-              <tr className="bg-slate-100 text-slate-950 font-bold uppercase border-b border-slate-300 font-mono">
-                <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[10%]">Código Pedido</th>
-                <th className="py-1.5 px-1 border-r border-slate-300 w-[12%]">Procurar Por</th>
-                <th className="py-1.5 px-1 border-r border-slate-300 w-[12%]">Destinatário Final</th>
-                <th className="py-1.5 px-1 border-r border-slate-300 w-[26%]">Endereço Completo</th>
-                <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[10%]">CEP</th>
-                <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[12%]">Parceiro</th>
-                <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[8%]">Valor Frete</th>
-                <th className="py-1.5 px-1 text-center w-[10%]">Condutor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDashboardOrders.map((order, idx) => {
-                const partnerName = resolvePartnerName(order, partnerClients);
-                const docCourier = couriers.find(c => c.id === order.courierId)?.name || 'Não alocado';
-                return (
-                  <tr key={order.id || idx} className="border-b border-slate-300">
-                    <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono font-bold">{order.id}</td>
-                    <td className="py-1.5 px-1 border-r border-slate-300 truncate max-w-[100px]">{order.procurarPor || '-'}</td>
-                    <td className="py-1.5 px-1 border-r border-slate-300 truncate max-w-[100px]">{resolveRecipientName(order, partnerClients)}</td>
-                    <td className="py-1.5 px-1 border-r border-slate-300 leading-tight">{order.address} {order.complemento ? `(${order.complemento})` : ''}</td>
-                    <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono">{order.cep || '-'}</td>
-                    <td className="py-1.5 px-1 text-center border-r border-slate-300">{partnerName}</td>
-                    <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono font-bold">R$ {(order.value || 0).toFixed(2).replace('.', ',')}</td>
-                    <td className="py-1.5 px-1 text-center font-bold font-mono">{docCourier}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-
-          <div className="mt-16 pt-8 border-t border-dashed border-slate-400 flex justify-between gap-12 text-center text-[9px] font-bold text-slate-500">
-            <div className="flex-1">
-              <div className="border-b border-slate-400 h-8 mb-1"></div>
-              Assinatura Operador de Expedição
-            </div>
-            <div className="flex-1">
-              <div className="border-b border-slate-400 h-8 mb-1"></div>
-              Carimbo do Despacho Logístico
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const isDriverLink = isDriverAccessUrl();
   const initialDriverIdFromUrl = typeof window !== 'undefined' ? (() => {
@@ -5678,263 +5703,6 @@ const markOrderAsDeleted = (orderId: string) => {
           </div>
         </div>
       )}
-
-      {/* 4. Dashboard Category Filter Full Screen Overlay */}
-      {dashboardFilterStatus && (() => {
-        const getTodayISO = (): string => formatToBrasiliaISODate(new Date());
-
-        const getYesterdayISO = (): string => {
-          const d = getBrasiliaDate();
-          d.setDate(d.getDate() - 1);
-          return formatToBrasiliaISODate(d);
-        };
-
-        const todayISO = getTodayISO();
-        const yesterdayISO = getYesterdayISO();
-
-        const parseToISODateInApp = (str: string | undefined): string => {
-          return parseToISODate(str, yesterdayISO);
-        };
-
-        const filteredDashboardOrders = orders.filter(o => {
-          if (!dashboardFilterStatus) return false;
-          const isStatusMatch = dashboardFilterStatus === 'all' ? true : o.status === dashboardFilterStatus;
-          if (!isStatusMatch) return false;
-
-          let transitionDateISO: string | null = null;
-          const statusToCheck = (dashboardFilterStatus !== 'all') ? dashboardFilterStatus : (o.status === 'delivered' ? 'delivered' : null);
-          if (statusToCheck && o.history && Array.isArray(o.history)) {
-            const entry = [...o.history].reverse().find(h => h && h.status === statusToCheck);
-            if (entry && entry.time) {
-              const parts = entry.time.split(' ');
-              const datePart = parts[0];
-              if (datePart) {
-                transitionDateISO = parseToISODateInApp(datePart);
-              }
-            }
-          }
-          const launchDateISO = parseToISODateInApp(o.dataSolicitacao);
-          const effectiveDateISO = transitionDateISO || launchDateISO;
-          const allocatedDateISO = o.allocatedDate ? parseToISODateInApp(o.allocatedDate) : null;
-
-          const matchesLaunchDate = launchDateISO >= dashboardFilterStart && launchDateISO <= dashboardFilterEnd;
-          const matchesEffectiveDate = effectiveDateISO >= dashboardFilterStart && effectiveDateISO <= dashboardFilterEnd;
-          const matchesAllocatedDate = Boolean(allocatedDateISO && allocatedDateISO >= dashboardFilterStart && allocatedDateISO <= dashboardFilterEnd);
-
-          const isActionStatus = ['delivered', 'cancelled', 'failure'].includes(dashboardFilterStatus);
-          if (isActionStatus) {
-            return matchesEffectiveDate;
-          }
-          return matchesLaunchDate || matchesEffectiveDate || matchesAllocatedDate;
-        });
-
-        return (
-          <div className="fixed inset-0 z-50 bg-slate-100 flex flex-col p-6 overflow-y-auto print:p-0 print:bg-white animate-fade-in select-text">
-            {/* Header bar (hidden during print) */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm print:hidden">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-indigo-50 border border-indigo-150 rounded-2xl text-indigo-600">
-                  <ClipboardCheck className="h-6 w-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest bg-indigo-150 text-indigo-800 px-2.5 py-0.5 rounded-full select-none">
-                      Filtrado por Status
-                    </span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      {filteredDashboardOrders.length} {filteredDashboardOrders.length === 1 ? 'pedido localizado' : 'pedidos localizados'}
-                    </span>
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-800 mt-1">
-                    Pedidos: {
-                      dashboardFilterStatus === 'all' ? 'Todos os Pedidos' :
-                      dashboardFilterStatus === 'pending' ? 'Não Iniciado' :
-                      dashboardFilterStatus === 'in_progress' ? 'Em Andamento' :
-                      dashboardFilterStatus === 'in_route' ? 'Entregando' :
-                      dashboardFilterStatus === 'failure' ? 'Ocorrência' :
-                      dashboardFilterStatus === 'delivered' ? 'Concluído' :
-                      dashboardFilterStatus === 'cancelled' ? 'Cancelado' : 'Em Aberto'
-                    }
-                  </h2>
-                  <p className="text-[11px] text-slate-450 font-semibold mt-0.5">
-                    Ref. Período de Solicitação de <span className="font-mono text-slate-600 font-bold">{dashboardFilterStart.split('-').reverse().join('/')}</span> até <span className="font-mono text-slate-600 font-bold">{dashboardFilterEnd.split('-').reverse().join('/')}</span>
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                {/* Printing button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTimeout(() => {
-                      window.print();
-                    }, 150);
-                  }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-                >
-                  <Printer className="h-4 w-4" />
-                  <span>Exportar para Impressão (A4)</span>
-                </button>
-
-                {/* Export CSV button */}
-                <button
-                  type="button"
-                  onClick={() => exportOrdersToCSV(filteredDashboardOrders, partnerClients)}
-                  className="px-4 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-650 font-bold text-xs rounded-xl transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-                >
-                  <FileText className="h-4 w-4 text-emerald-500" />
-                  <span>Exportar CSV / Planilha</span>
-                </button>
-
-                {/* Close overlay button */}
-                <button
-                  type="button"
-                  onClick={() => setDashboardFilterStatus(null)}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95"
-                >
-                  <X className="h-4 w-4" />
-                  <span>Fechar Visualização</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Main interactive Table wrapper (hidden during print) */}
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 flex-1 shadow-md print:hidden">
-              {filteredDashboardOrders.length > 0 ? (
-                <OrdersTable 
-                  orders={filteredDashboardOrders} 
-                  onUpdateStatus={handleUpdateOrderStatus} 
-                  onBulkUpdateStatus={handleBulkUpdateStatus}
-                  onBulkAllocateCourier={handleBulkAllocateCourier}
-                  searchTerm={searchTerm} 
-                  onSearchTermChange={setSearchTerm}
-                  onResetDashboardFilterStatus={() => {
-                    setDashboardFilterStatus(null);
-                    setDashboardFilterStart(undefined);
-                    setDashboardFilterEnd(undefined);
-                  }}
-                  partnerClients={partnerClients}
-                  couriers={couriers}
-                  hubs={hubs}
-                  freightRules={freightRules}
-                  onAllocateCourier={handleAllocateCourier}
-                  onDeallocateCourier={handleDeallocateCourier}
-                  onEditOrder={handleEditOrder}
-                  onDeleteOrder={handleDeleteOrder}
-                  onAddOrder={handleAddOrder}
-                  initialEnableDateFilter={true}
-                  initialStartDate={dashboardFilterStart}
-                  initialEndDate={dashboardFilterEnd}
-                  currentUser={currentUser}
-                  selectedCourierId={selectedCourierId}
-                  setSelectedCourierId={setSelectedCourierId}
-                  onDateFilterChange={handleDateFilterChange}
-                  onRefetchDatabase={(options) => fetchDatabase(true, options)}
-                  isSyncing={isSyncing}
-                  onLoadPeriod={lazyLoadPeriod}
-                  onLoadFullHistory={lazyLoadFullHistory}
-                  isFullHistoryLoaded={isFullHistoryLoaded}
-                  totalOrdersInDb={totalOrdersInDb}
-                  isLoadingPeriod={isLoadingPeriod}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center py-20 text-center">
-                  <ClipboardCheck className="h-12 w-12 text-slate-305 stroke-[1.5] mb-2 animate-bounce" />
-                  <h4 className="text-sm font-bold text-slate-705">Nenhum registro para este período</h4>
-                  <p className="text-xs text-slate-400 mt-1 max-w-sm">Nenhum pedido foi encontrado neste status no intervalo selecionado.</p>
-                  <button
-                    type="button"
-                    onClick={() => setDashboardFilterStatus(null)}
-                    className="mt-4 px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg transition-colors cursor-pointer"
-                  >
-                    Voltar ao Painel
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Hidden print layout wrapper (only active during print via visibility styles) */}
-            <div id="printable-area" className="hidden print:block text-slate-950 bg-white p-6 font-sans w-full">
-              <div className="flex justify-between items-start border-b-2 border-slate-950 pb-4 mb-6">
-                <div>
-                  <h1 className="text-xl font-black uppercase text-slate-950 tracking-tight">Relatório Despacho de Entregas</h1>
-                  <p className="text-xs text-slate-600 mt-1">
-                    Status Filtro: <span className="font-extrabold uppercase text-slate-950 text-indigo-800">
-                      {
-                        dashboardFilterStatus === 'all' ? 'Todos os Pedidos' :
-                        dashboardFilterStatus === 'pending' ? 'Não Iniciado' :
-                        dashboardFilterStatus === 'in_progress' ? 'Em Andamento' :
-                        dashboardFilterStatus === 'in_route' ? 'Entregando' :
-                        dashboardFilterStatus === 'failure' ? 'Ocorrência' :
-                        dashboardFilterStatus === 'delivered' ? 'Concluído' :
-                        dashboardFilterStatus === 'cancelled' ? 'Cancelado' : 'Em Aberto'
-                      }
-                    </span>
-                  </p>
-                  <p className="text-xs text-slate-600">
-                    Período: <span className="font-mono font-bold text-slate-800">{dashboardFilterStart.split('-').reverse().join('/')} até {dashboardFilterEnd.split('-').reverse().join('/')}</span>
-                  </p>
-                </div>
-                <div className="text-right">
-                  <h2 className="text-base font-black text-slate-950 uppercase tracking-wide">ViniMap Logística</h2>
-                  <p className="text-[9px] text-slate-500 mt-0.5">Emitido em: {new Date().toLocaleString('pt-BR')}</p>
-                </div>
-              </div>
-
-              <div className="mb-4 text-[10px] font-bold text-slate-800 grid grid-cols-3 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <div>Total de Pedidos: <span className="font-mono font-black">{filteredDashboardOrders.length}</span></div>
-                <div>Faturamento no Filtro: <span className="font-mono font-black">R$ {filteredDashboardOrders.reduce((acc, o) => acc + (o.value || 0), 0).toFixed(2).replace('.', ',')}</span></div>
-                <div>Condutores Engajados: <span className="font-mono font-black">{Array.from(new Set(filteredDashboardOrders.filter(o => o.courierId).map(o => o.courierId))).length}</span></div>
-              </div>
-
-              <table className="w-full text-[9px] text-left border-collapse border border-slate-300">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-950 font-bold uppercase border-b border-slate-300 font-mono">
-                    <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[10%]">Código Pedido</th>
-                    <th className="py-1.5 px-1 border-r border-slate-300 w-[12%]">Procurar Por</th>
-                    <th className="py-1.5 px-1 border-r border-slate-300 w-[12%]">Destinatário Final</th>
-                    <th className="py-1.5 px-1 border-r border-slate-300 w-[26%]">Endereço Completo</th>
-                    <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[10%]">CEP</th>
-                    <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[12%]">Parceiro</th>
-                    <th className="py-1.5 px-1 text-center border-r border-slate-300 w-[8%]">Valor Frete</th>
-                    <th className="py-1.5 px-1 text-center w-[10%]">Condutor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDashboardOrders.map((order, idx) => {
-                    const partnerName = resolvePartnerName(order, partnerClients);
-                    const docCourier = couriers.find(c => c.id === order.courierId)?.name || 'Não alocado';
-                    return (
-                      <tr key={order.id || idx} className="border-b border-slate-300">
-                        <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono font-bold">{order.id}</td>
-                        <td className="py-1.5 px-1 border-r border-slate-300 truncate max-w-[100px]">{order.procurarPor || '-'}</td>
-                        <td className="py-1.5 px-1 border-r border-slate-300 truncate max-w-[100px]">{resolveRecipientName(order, partnerClients)}</td>
-                        <td className="py-1.5 px-1 border-r border-slate-300 leading-tight">{order.address} {order.complemento ? `(${order.complemento})` : ''}</td>
-                        <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono">{order.cep || '-'}</td>
-                        <td className="py-1.5 px-1 text-center border-r border-slate-300">{partnerName}</td>
-                        <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono font-bold">R$ {(order.value || 0).toFixed(2).replace('.', ',')}</td>
-                        <td className="py-1.5 px-1 text-center font-bold font-mono">{docCourier}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <div className="mt-16 pt-8 border-t border-dashed border-slate-400 flex justify-between gap-12 text-center text-[9px] font-bold text-slate-500">
-                <div className="flex-1">
-                  <div className="border-b border-slate-400 h-8 mb-1"></div>
-                  Assinatura Operador de Expedição
-                </div>
-                <div className="flex-1">
-                  <div className="border-b border-slate-400 h-8 mb-1"></div>
-                  Carimbo do Despacho Logístico
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Floating Push Notifications & Sync State Toast overlays */}
       <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none">

@@ -103,6 +103,7 @@ export interface Order {
   status_sincronizado?: string;
   allocatedDate?: string;
   createdAt?: string;
+  created_at?: string;
   documento?: string;
   phone?: string;
   versionTimestamp?: number;
@@ -125,6 +126,9 @@ export interface Order {
   receiverName?: string;
   receiverDoc?: string;
   deliveredAt?: string;
+  cancelledAt?: string;
+  failureAt?: string;
+  occurrenceAt?: string;
   history?: {
     id: string;
     time: string;

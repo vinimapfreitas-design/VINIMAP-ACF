@@ -82,6 +82,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
   const [isDiagnosticOpen, setIsDiagnosticOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showAllDeliveredHistory, setShowAllDeliveredHistory] = useState(false);
   const [newOrderAlert, setNewOrderAlert] = useState<string | null>(null);
   const knownAssignedOrderIdsRef = React.useRef<Set<string> | null>(null);
 
@@ -229,12 +230,11 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
       return !isStandalone && couriers.length > 0 ? couriers[0] : null;
     }
     const userCleanPhone = targetId.replace(/\D/g, '');
-    const normPhone = (p: string) => String(p).replace(/\D/g, '').replace(/^55(?=1[1-9])/, '');
     const matched = couriers.find(c => {
-      const cPhoneClean = normPhone(c.phone || '');
+      const cPhoneClean = (c.phone || '').replace(/\D/g, '');
       return (
         c.id === targetId || 
-        (cPhoneClean && userCleanPhone && normPhone(userCleanPhone).length >= 10 && cPhoneClean === normPhone(userCleanPhone)) ||
+        (cPhoneClean && userCleanPhone && (cPhoneClean === userCleanPhone || cPhoneClean.endsWith(userCleanPhone) || userCleanPhone.endsWith(cPhoneClean))) ||
         (c.name && targetId && c.name.toLowerCase() === targetId.toLowerCase())
       );
     });
@@ -363,6 +363,20 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
     try {
       if (onUpdateStatus) {
         await onUpdateStatus(orderId, nextStatus, details);
+      } else {
+        const payload: any = {
+          status: nextStatus,
+          statusSincronizado: nextStatus,
+          status_sincronizado: nextStatus,
+          versionTimestamp: Date.now(),
+          updatedAt: Date.now()
+        };
+        if (details) Object.assign(payload, details);
+        await fetch(`/api/orders/${encodeURIComponent(orderId)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
       }
       
       // Automatically switch courier to 'busy' when putting an order in route
@@ -502,12 +516,56 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
   const todayISO = React.useMemo(() => formatToBrasiliaISODate(new Date()), []);
   const todayFormatted = React.useMemo(() => formatToBrasiliaDate(new Date()), []);
 
+  // Function to identify if an assigned order was delivered today
+  const isOrderDeliveredToday = React.useCallback((o: Order): boolean => {
+    if (o.status !== 'delivered') return false;
+
+    // 1. Delivery Protocol signedAt
+    if (o.deliveryProtocol?.signedAt) {
+      const d = parseToISODate(o.deliveryProtocol.signedAt.split(' ')[0] || o.deliveryProtocol.signedAt, '');
+      if (d === todayISO) return true;
+      if (d && d !== todayISO) return false;
+    }
+
+    // 2. deliveredAt
+    if (o.deliveredAt) {
+      const d = parseToISODate(o.deliveredAt.split(' ')[0] || o.deliveredAt, '');
+      if (d === todayISO) return true;
+      if (d && d !== todayISO) return false;
+    }
+
+    // 3. History transition to delivered
+    if (o.history && Array.isArray(o.history) && o.history.length > 0) {
+      const delivEntry = [...o.history].reverse().find(h => h && h.status === 'delivered');
+      if (delivEntry && delivEntry.time) {
+        const dPart = delivEntry.time.split(' ')[0];
+        const d = parseToISODate(dPart, '');
+        if (d === todayISO) return true;
+        if (d && d !== todayISO) return false;
+      }
+    }
+
+    // 4. statusUpdatedAt
+    if (o.statusUpdatedAt) {
+      const ts = Number(o.statusUpdatedAt);
+      if (ts > 0) {
+        const d = formatToBrasiliaISODate(new Date(ts));
+        if (d === todayISO) return true;
+        if (d && d !== todayISO) return false;
+      }
+    }
+
+    return false;
+  }, [todayISO]);
+
   // Function to identify if an assigned order is active on the current day (pending or in_route for today)
+  // Regra de Negócio: ao abrir o dia o dispositivo deve iniciar zerado, aguardando novos pedidos
+  // e/ou realocações de pedidos pendentes pelo adm.
   const isOrderActiveToday = React.useCallback((o: Order): boolean => {
     const isPendingOrInRoute = o.status === 'pending' || o.status === 'in_route' || o.status === 'in_progress';
     if (!isPendingOrInRoute) return false;
 
-    // 1. Check allocatedDate
+    // 1. Check allocatedDate: if explicitly allocated for today
     if (o.allocatedDate) {
       const allocISO = parseToISODate(o.allocatedDate, '');
       if (allocISO === todayISO) return true;
@@ -524,10 +582,11 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
       if (hasTodayActivity) return true;
     }
 
-    // 3. Check dataSolicitacao
+    // 3. Check dataSolicitacao: only active today if requested today
     if (o.dataSolicitacao) {
       const solISO = parseToISODate(o.dataSolicitacao, '');
       if (solISO === todayISO) return true;
+      if (solISO && solISO !== todayISO) return false;
     }
 
     // 4. Check order.createdAt or custom date property safely
@@ -535,20 +594,17 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
     if (customDate) {
       const dateISO = parseToISODate(customDate, '');
       if (dateISO === todayISO) return true;
+      if (dateISO && dateISO !== todayISO) return false;
     }
 
-    // Default for pending or in_route assigned to driver without a conflicting date is active today
-    return true;
+    // Orders without a today date are pending reallocation by the admin and must not pollute today's zeroed start
+    return false;
   }, [todayISO]);
 
   const totalAssigned = assignedOrders.length;
-  const pendingCount = assignedOrders.filter(o => o.status === 'pending').length;
-  const inRouteCount = assignedOrders.filter(o => o.status === 'in_route' || o.status === 'in_progress').length;
-  const deliveredCount = assignedOrders.filter(o => o.status === 'delivered').length;
-  const activeCount = pendingCount + inRouteCount;
   const deliveredOrders = assignedOrders.filter(o => o.status === 'delivered' && (o.deliveryProtocol || o.proofPhotoUrl));
 
-  // Orders active today (pendentes ou em rota ativos no dia atual)
+  // Orders active today (pendentes ou em rota ativos no dia atual - inicia zerado)
   const activeTodayOrders = React.useMemo(() => {
     return assignedOrders.filter(o => isOrderActiveToday(o));
   }, [assignedOrders, isOrderActiveToday]);
@@ -557,14 +613,37 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
   const pendingTodayCount = activeTodayOrders.filter(o => o.status === 'pending').length;
   const inRouteTodayCount = activeTodayOrders.filter(o => o.status === 'in_route' || o.status === 'in_progress').length;
 
-  // Filter orders for the selected courier with memoization
+  // Orders delivered today (inicia zerado para o dia)
+  const deliveredTodayOrders = React.useMemo(() => {
+    return assignedOrders.filter(o => isOrderDeliveredToday(o));
+  }, [assignedOrders, isOrderDeliveredToday]);
+
+  const deliveredTodayCount = deliveredTodayOrders.length;
+  const todayAssignedCount = activeTodayCount + deliveredTodayCount;
+
+  // Filter orders for the selected courier with memoization (inicia o dia zerado)
   const driverOrders = React.useMemo(() => {
     const list = assignedOrders.filter(o => {
-      // Active status filter (default): automatically hides delivered/failed orders to unpollute the driver's screen
-      if (statusFilter === 'active' && (o.status === 'delivered' || o.status === 'failure')) return false;
-      if (statusFilter === 'pending' && o.status !== 'pending') return false;
-      if (statusFilter === 'in_route' && o.status !== 'in_route' && o.status !== 'in_progress') return false;
-      if (statusFilter === 'delivered' && o.status !== 'delivered') return false;
+      // Active status filter (default): only shows orders active TODAY
+      if (statusFilter === 'active') {
+        if (!isOrderActiveToday(o)) return false;
+      }
+      if (statusFilter === 'pending') {
+        if (!isOrderActiveToday(o) || o.status !== 'pending') return false;
+      }
+      if (statusFilter === 'in_route') {
+        if (!isOrderActiveToday(o) || (o.status !== 'in_route' && o.status !== 'in_progress')) return false;
+      }
+      if (statusFilter === 'delivered') {
+        if (!showAllDeliveredHistory) {
+          if (!isOrderDeliveredToday(o)) return false;
+        } else {
+          if (o.status !== 'delivered') return false;
+        }
+      }
+      if (statusFilter === 'all') {
+        if (!isOrderActiveToday(o) && !isOrderDeliveredToday(o)) return false;
+      }
 
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
@@ -579,17 +658,8 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
       return true;
     });
 
-    // When viewing active orders, prioritize today's active orders at the top
-    if (statusFilter === 'active') {
-      return [...list].sort((a, b) => {
-        const aToday = isOrderActiveToday(a) ? 1 : 0;
-        const bToday = isOrderActiveToday(b) ? 1 : 0;
-        return bToday - aToday;
-      });
-    }
-
     return list;
-  }, [assignedOrders, statusFilter, searchTerm, partnerClients, isOrderActiveToday]);
+  }, [assignedOrders, statusFilter, searchTerm, partnerClients, isOrderActiveToday, isOrderDeliveredToday, showAllDeliveredHistory]);
 
   // Audio chime and alert banner ONLY when a genuinely brand new order ID is allocated
   useEffect(() => {
@@ -845,7 +915,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   </div>
                 )}
                 <span className="text-sm font-black bg-blue-50 text-blue-900 border border-blue-200 px-3 py-1.5 rounded-full shadow-xs">
-                  {deliveredCount}/{totalAssigned} Entregas
+                  {deliveredTodayCount}/{todayAssignedCount} Entregas Hoje
                 </span>
               </div>
             </div>
@@ -949,11 +1019,11 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
             </div>
             <div className="bg-white p-3 rounded-2xl border-2 border-blue-300 shadow-xs">
               <span className="text-xs text-blue-800 font-black uppercase block truncate">Em Rota</span>
-              <span className="text-2xl sm:text-3xl font-black text-blue-600">{inRouteCount}</span>
+              <span className="text-2xl sm:text-3xl font-black text-blue-600">{inRouteTodayCount}</span>
             </div>
             <div className="bg-white p-3 rounded-2xl border-2 border-emerald-300 shadow-xs">
               <span className="text-xs text-emerald-800 font-black uppercase block truncate">Entregues</span>
-              <span className="text-2xl sm:text-3xl font-black text-emerald-600">{deliveredCount}</span>
+              <span className="text-2xl sm:text-3xl font-black text-emerald-600">{deliveredTodayCount}</span>
             </div>
           </div>
         </div>
@@ -1047,7 +1117,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   >
                     <span>Pendentes</span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${statusFilter === 'pending' ? 'bg-amber-600 text-slate-950' : 'bg-slate-100 text-slate-800'}`}>
-                      {pendingCount}
+                      {pendingTodayCount}
                     </span>
                   </button>
 
@@ -1061,7 +1131,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   >
                     <span>Em Rota</span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${statusFilter === 'in_route' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                      {inRouteCount}
+                      {inRouteTodayCount}
                     </span>
                   </button>
 
@@ -1075,7 +1145,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   >
                     <span>Concluídas</span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${statusFilter === 'delivered' ? 'bg-emerald-700 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                      {deliveredCount}
+                      {deliveredTodayCount}
                     </span>
                   </button>
 
@@ -1087,13 +1157,31 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                         : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-50'
                     }`}
                   >
-                    <span>Todas</span>
+                    <span>Todas (Hoje)</span>
                     <span className={`text-xs px-2.5 py-0.5 rounded-full font-black ${statusFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                      {totalAssigned}
+                      {todayAssignedCount}
                     </span>
                   </button>
                 </div>
               </div>
+
+              {/* Historical Delivered Toggle when viewing delivered */}
+              {statusFilter === 'delivered' && deliveredOrders.length > deliveredTodayCount && (
+                <div className="p-3 bg-slate-50 border-2 border-slate-200 rounded-2xl flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-semibold">
+                    {showAllDeliveredHistory 
+                      ? `Exibindo histórico completo (${deliveredOrders.length} entregas)` 
+                      : `Dia iniciado zerado • ${deliveredOrders.length - deliveredTodayCount} entregas em dias anteriores`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllDeliveredHistory(!showAllDeliveredHistory)}
+                    className="text-xs font-black text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                  >
+                    {showAllDeliveredHistory ? 'Exibir apenas hoje' : 'Ver histórico anterior'}
+                  </button>
+                </div>
+              )}
 
               {/* Summary Banner of Active Orders Today */}
               <div className="p-4 bg-white border-2 border-blue-300 rounded-2xl shadow-xs flex items-center justify-between gap-3">
@@ -1104,7 +1192,9 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                   <div className="truncate">
                     <span className="text-xs font-black uppercase text-blue-800 tracking-wider block">Fila Ativa no Dia Atual</span>
                     <h5 className="text-base sm:text-lg font-black text-slate-900 truncate">
-                      {activeTodayCount} {activeTodayCount === 1 ? 'pedido ativo' : 'pedidos ativos'} para entrega
+                      {activeTodayCount === 0 
+                        ? 'Dia iniciado zerado • Aguardando novos pedidos' 
+                        : `${activeTodayCount} ${activeTodayCount === 1 ? 'pedido ativo' : 'pedidos ativos'} para entrega`}
                     </h5>
                   </div>
                 </div>
@@ -1123,9 +1213,13 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                 <div className="bg-white p-8 rounded-3xl border-2 border-slate-300 text-center space-y-4 my-4 shadow-sm">
                   <Package size={44} className="mx-auto text-slate-400" />
                   <div>
-                    <p className="text-base font-black text-slate-900">Nenhum pedido encontrado no momento.</p>
+                    <p className="text-base font-black text-slate-900">
+                      {statusFilter === 'delivered' ? 'Nenhuma entrega concluída hoje' : 'Dia iniciado zerado • Aguardando novos pedidos'}
+                    </p>
                     <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                      Assim que o despachador alocar uma entrega para o seu cadastro, ela aparecerá aqui automaticamente.
+                      {statusFilter === 'delivered'
+                        ? 'As entregas finalizadas no dia de hoje aparecerão aqui após a assinatura do comprovante.'
+                        : 'Nenhum pedido ativo no momento. O dia inicia zerado aguardando novas entregas serem despachadas ou realocadas pelo administrador.'}
                     </p>
                   </div>
                   <button

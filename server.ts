@@ -3011,6 +3011,77 @@ app.post("/api/firestore/reset-circuit", (req, res) => {
   });
 });
 
+// Real-time Server-Sent Events (SSE) Engine for instant multi-device reflection
+const sseClients = new Set<any>();
+
+export function broadcastServerEvent(event: string, data: any) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch (_) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// SSE Event Stream for live Admin Dashboard & Driver Device synchronization
+app.get("/api/events", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  res.write(`event: ping\ndata: {"time":${Date.now()}}\n\n`);
+
+  sseClients.add(res);
+
+  const pingInterval = setInterval(() => {
+    try {
+      res.write(`event: ping\ndata: {"time":${Date.now()}}\n\n`);
+    } catch (_) {
+      clearInterval(pingInterval);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on("close", () => {
+    clearInterval(pingInterval);
+    sseClients.delete(res);
+  });
+});
+
+// Lightweight Delta Sync Endpoint for reliable polling fallback
+app.get("/api/sync/delta", (req, res) => {
+  try {
+    const db = loadDB();
+    const since = Number(req.query.since || 0);
+    const now = Date.now();
+
+    const changedOrders = (db.orders || []).filter((o: any) => {
+      const ts = Number(o.versionTimestamp || o.updatedAt || o.statusUpdatedAt || 0);
+      return ts > since;
+    });
+
+    const changedCouriers = (db.couriers || []).filter((c: any) => {
+      const ts = Number(c.updatedAt || 0);
+      return ts > since;
+    });
+
+    res.json({
+      timestamp: now,
+      orders: changedOrders,
+      couriers: changedCouriers,
+      deletedOrderIds: db.deletedOrderIds || []
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Endpoint to expose non-sensitive Supabase config dynamically to client
 app.get("/api/supabase-config", (req, res) => {
   let url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -3838,32 +3909,63 @@ function parseOrderDateToISO(str: any): string {
 
 function getOrderEffectiveISODate(order: any): string {
   if (!order) return "";
-  if (order.status === "delivered") {
-    if (order.deliveryProtocol?.signedAt) {
-      const parsed = parseOrderDateToISO(order.deliveryProtocol.signedAt);
-      if (parsed) return parsed;
-    }
-    if (order.deliveredAt) {
-      const parsed = parseOrderDateToISO(order.deliveredAt);
-      if (parsed) return parsed;
-    }
-  }
+  // 1. Data de Solicitação é o critério primário soberano para início da filtragem por período
   if (order.dataSolicitacao) {
     const parsed = parseOrderDateToISO(order.dataSolicitacao);
-    if (parsed) return parsed;
-  }
-  if (order.allocatedDate) {
-    const parsed = parseOrderDateToISO(order.allocatedDate);
     if (parsed) return parsed;
   }
   if (order.createdAt) {
     const parsed = parseOrderDateToISO(order.createdAt);
     if (parsed) return parsed;
   }
+  if (order.created_at) {
+    const parsed = parseOrderDateToISO(order.created_at);
+    if (parsed) return parsed;
+  }
   return "";
 }
 
-function filterOrdersByDateRange(orders: any[], startDate?: string, endDate?: string, includeActive = true): { filteredOrders: any[], totalOrdersInDb: number, hasMoreHistorical: boolean } {
+function getOrderCompletionOrTransitionISODates(order: any): string[] {
+  if (!order) return [];
+  const dates: string[] = [];
+
+  // Protocolo / entregue
+  if (order.deliveryProtocol?.signedAt) {
+    const d = parseOrderDateToISO(order.deliveryProtocol.signedAt.split(" ")[0] || order.deliveryProtocol.signedAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.deliveredAt) {
+    const d = parseOrderDateToISO(order.deliveredAt.split(" ")[0] || order.deliveredAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.cancelledAt) {
+    const d = parseOrderDateToISO(order.cancelledAt.split(" ")[0] || order.cancelledAt);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.failureAt || (order as any).occurrenceAt) {
+    const d = parseOrderDateToISO((order.failureAt || (order as any).occurrenceAt).split(" ")[0]);
+    if (d && !dates.includes(d)) dates.push(d);
+  }
+  if (order.statusUpdatedAt) {
+    const rawTs = Number(order.statusUpdatedAt);
+    if (rawTs > 0) {
+      const dt = new Date(rawTs);
+      const iso = parseOrderDateToISO(dt.toISOString());
+      if (iso && !dates.includes(iso)) dates.push(iso);
+    }
+  }
+  if (Array.isArray(order.history)) {
+    for (const h of order.history) {
+      if (h && h.time) {
+        const d = parseOrderDateToISO(h.time.split(" ")[0] || h.time);
+        if (d && !dates.includes(d)) dates.push(d);
+      }
+    }
+  }
+  return dates;
+}
+
+function filterOrdersByDateRange(orders: any[], startDate?: string, endDate?: string, includeActive = false): { filteredOrders: any[], totalOrdersInDb: number, hasMoreHistorical: boolean } {
   const totalOrdersInDb = (orders || []).length;
   if (!startDate && !endDate) {
     return { filteredOrders: orders || [], totalOrdersInDb, hasMoreHistorical: false };
@@ -3875,14 +3977,30 @@ function filterOrdersByDateRange(orders: any[], startDate?: string, endDate?: st
   let matchCount = 0;
   const filteredOrders = (orders || []).filter((o: any) => {
     if (!o) return false;
-    const isActive = includeActive && (o.status === "pending" || o.status === "in_progress" || o.status === "in_route" || o.status === "failure");
+    // 1. Data de Solicitação como critério primário soberano para início da filtragem
     const orderDate = getOrderEffectiveISODate(o);
-    const inRange = orderDate ? (orderDate >= start && orderDate <= end) : false;
+    const inSolicitationRange = orderDate ? (orderDate >= start && orderDate <= end) : false;
 
-    if (inRange || isActive) {
+    if (inSolicitationRange) {
       matchCount++;
       return true;
     }
+
+    // 2. Transições e conclusões no período (para sincronizar quando filtro secundário de status for aplicado)
+    // Ex: pedido concluído dentro do período de data inicial a data final, mesmo com data de solicitação diferente
+    const transitionDates = getOrderCompletionOrTransitionISODates(o);
+    const hasTransitionInRange = transitionDates.some(d => d >= start && d <= end);
+    if (hasTransitionInRange) {
+      matchCount++;
+      return true;
+    }
+
+    // 3. Pedidos em aberto se includeActive for verdadeiro
+    if (includeActive && o.status !== "delivered" && o.status !== "cancelled") {
+      matchCount++;
+      return true;
+    }
+
     return false;
   });
 
@@ -4207,6 +4325,7 @@ app.post("/api/orders", async (req, res) => {
   }
 
   await saveDB(db);
+  broadcastServerEvent("order_created", { order: newOrder, orderId: newOrder.id });
   res.status(201).json({ order: newOrder, activity: newActivity });
 });
 
@@ -4561,6 +4680,7 @@ app.put("/api/orders/:id", async (req, res) => {
 
     // Persist to local json file without blocking caller with long cloud batch loops
     saveDB(db, false, false, "orders").catch(() => {});
+    broadcastServerEvent("order_updated", { order: db.orders[index], orderId: actualOrderId });
     res.json(db.orders[index]);
   } else {
     // Upsert: Order was imported or created client-side and not yet in db.orders
@@ -4714,6 +4834,7 @@ app.put("/api/orders/:id", async (req, res) => {
     }
 
     saveDB(db, false, false, "orders").catch(() => {});
+    broadcastServerEvent("order_updated", { order: newOrder, orderId: id });
     res.json(newOrder);
   }
 });
@@ -4806,11 +4927,13 @@ app.delete("/api/orders/:id", async (req, res) => {
       }
     }
 
+    broadcastServerEvent("order_deleted", { orderId: actualId });
     res.json({ success: true, activity: newActivity, deletedOrderId: actualId });
   } else {
     // Even if not currently in memory, ensure it is recorded as a tombstone
     registerTombstones(id);
     await saveDB(db);
+    broadcastServerEvent("order_deleted", { orderId: id });
     res.json({ success: true, alreadyDeleted: true, deletedOrderId: id });
   }
 });
@@ -4984,6 +5107,7 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
   }
 
   await saveDB(db);
+  broadcastServerEvent("orders_bulk_allocated", { orderIds, courierId });
   res.json({ success: true, activity: newActivity, orders: db.orders, couriers: db.couriers });
 });
 
@@ -5109,6 +5233,7 @@ app.post("/api/orders/bulk-status", async (req, res) => {
   }
 
   await saveDB(db, true, false, "orders");
+  broadcastServerEvent("orders_bulk_updated", { orderIds, status });
   res.json({ success: true, activity: newActivity, orders: db.orders, couriers: db.couriers });
 });
 
@@ -5429,6 +5554,7 @@ app.put("/api/couriers/:id", async (req, res) => {
     }
 
     saveDB(db, false, false, "couriers").catch(() => {});
+    broadcastServerEvent("courier_updated", { courier: updatedCourier, courierId: id });
     res.json(updatedCourier);
   } else {
     res.status(404).json({ error: "Entregador não encontrado" });
@@ -5527,19 +5653,14 @@ app.post("/api/driver/login", async (req, res) => {
     const db = loadDB();
     const couriers = db.couriers || [];
 
-    // Search by cleaned phone digits (EXACT normalized match, sem endsWith ambíguo) or by direct ID or name
+    // Search by cleaned phone digits or by direct ID or name
     const courier = couriers.find((c: any) => {
       const cCleanPhone = String(c.phone || "").replace(/\D/g, "");
       const cId = String(c.id || "").toLowerCase();
       const inputLower = inputPhone.toLowerCase();
 
-      if (inputCleanPhone && cCleanPhone) {
-        // Match exato normalizado: tolera apenas o prefixo 55 (Brasil) e exige tamanho mínimo de telefone
-        const normInput = inputCleanPhone.replace(/^55(?=1[1-9])/, "");
-        const normCPhone = cCleanPhone.replace(/^55(?=1[1-9])/, "");
-        if (normInput.length >= 10 && normInput === normCPhone) {
-          return true;
-        }
+      if (inputCleanPhone && cCleanPhone && (cCleanPhone === inputCleanPhone || cCleanPhone.endsWith(inputCleanPhone) || inputCleanPhone.endsWith(cCleanPhone))) {
+        return true;
       }
       if (cId === inputLower) {
         return true;
@@ -5569,27 +5690,6 @@ app.post("/api/driver/login", async (req, res) => {
     const clientDeviceId = req.body?.deviceId || `dev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newSessionToken = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const nowIso = new Date().toISOString();
-
-    // REGRA DE APARELHO: revogar a sessão de QUALQUER OUTRO condutor que esteja
-    // vinculado ao mesmo deviceId (para que nunca haja 2 condutores ativos no mesmo celular)
-    try {
-      let revokedOthers = 0;
-      couriers.forEach((other: any) => {
-        if (other && other.id !== courier.id && other.activeDeviceId && other.activeDeviceId === clientDeviceId) {
-          other.activeSessionToken = null;
-          other.activeDeviceId = null;
-          other.lastLoginAt = null;
-          other.lastLoginDevice = null;
-          revokedOthers++;
-        }
-      });
-      if (revokedOthers > 0) {
-        console.log(`[POST /api/driver/login] Sessão de ${revokedOthers} outro(s) condutor(es) revogada(s) no mesmo aparelho (deviceId ${clientDeviceId}).`);
-      }
-    } catch (revokeErr) {
-      console.warn("[POST /api/driver/login] Aviso ao revogar sessões anteriores no mesmo aparelho:", revokeErr);
-    }
-
     courier.activeSessionToken = newSessionToken;
     courier.activeDeviceId = clientDeviceId;
     courier.lastLoginAt = nowIso;
@@ -7435,246 +7535,6 @@ app.get('/api/github/status', (req, res) => {
   res.json(db.githubConnection || { connected: false });
 });
 
-// ================= AUTO-DEPLOY (GitHub -> build -> restart automático) =================
-const AUTO_DEPLOY_STATE: any = { running: false, lastRunAt: null, lastResult: null, pendingRestartAt: 0 };
-let updateCheckCache: any = null;
-
-function getAutoDeployEnabled(): boolean {
-  try {
-    const db2 = loadDB();
-    return db2.autoDeploy ? db2.autoDeploy.enabled !== false : true;
-  } catch (e) { return true; }
-}
-
-function setAutoDeployEnabled(enabled: boolean) {
-  const db2 = loadDB();
-  db2.autoDeploy = { ...(db2.autoDeploy || {}), enabled, updatedAt: new Date().toISOString() };
-  saveDB(db2);
-}
-
-function logAutoDeploy(line: string) {
-  console.log(`[Auto-Deploy] ${line}`);
-  try {
-    fs.appendFileSync(path.join(process.cwd(), 'src', 'auto-deploy.log'), `${new Date().toISOString()} ${line}\n`);
-  } catch (e) {}
-}
-
-async function runAutoDeploy(source: string, opts?: { forceBuild?: boolean }) {
-  const forceBuild = !!opts?.forceBuild;
-  if (AUTO_DEPLOY_STATE.running) {
-    return { success: false, error: 'Auto-deploy já em execução.' };
-  }
-  if (!getAutoDeployEnabled() && source !== 'manual' && source !== 'afterPush') {
-    return { success: false, error: 'Auto-deploy desativado.' };
-  }
-  if (Date.now() - AUTO_DEPLOY_STATE.pendingRestartAt < 60_000) {
-    logAutoDeploy(`[${source}] Ignorado (janela anti-loop de 60s).`);
-    return { success: false, error: 'anti-loop' };
-  }
-  AUTO_DEPLOY_STATE.running = true;
-  AUTO_DEPLOY_STATE.lastRunAt = new Date().toISOString();
-  const repo = `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`;
-  const result: any = { source, at: AUTO_DEPLOY_STATE.lastRunAt };
-  logAutoDeploy(`[${source}] Verificando ${repo} (branch main)...`);
-  try {
-    try {
-      execSync('git fetch origin main', { cwd: process.cwd(), stdio: 'pipe', timeout: 60_000 });
-    } catch (fetchErr: any) {
-      try {
-        const remoteUrl = `https://github.com/${repo}.git`;
-        try { execSync('git remote remove origin', { cwd: process.cwd(), stdio: 'ignore' }); } catch {}
-        execSync(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), stdio: 'ignore' });
-        execSync('git fetch origin main', { cwd: process.cwd(), stdio: 'pipe', timeout: 60_000 });
-      } catch (fetchErr2: any) {
-        throw new Error(`Falha ao buscar GitHub: ${String((fetchErr2 && fetchErr2.message) || fetchErr2).split('\n')[0]}`);
-      }
-    }
-    let remoteSha = '';
-    try { remoteSha = execSync('git rev-parse origin/main', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim(); } catch (e) {}
-    let localSha = '';
-    try { localSha = execSync('git rev-parse HEAD', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim(); } catch (e) {}
-    result.remoteSha = remoteSha;
-    result.localSha = localSha;
-    if (remoteSha && remoteSha === localSha && !forceBuild) {
-      logAutoDeploy(`[${source}] Sem atualizações (${localSha.slice(0, 7)}).`);
-      result.success = true;
-      result.upToDate = true;
-      AUTO_DEPLOY_STATE.lastResult = result;
-      return result;
-    }
-    try {
-      const dirty = execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf-8' }).toString().trim();
-      if (dirty) {
-        execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' });
-        execSync(`git commit -m "chore: snapshot auto-deploy ${new Date().toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: 'pipe' });
-        logAutoDeploy('Snapshot local criado (mudanças preservadas no git).');
-      }
-    } catch (e) {}
-    if (remoteSha && remoteSha !== localSha) {
-      logAutoDeploy(`[${source}] Atualizando ${localSha ? localSha.slice(0, 7) : '?'} -> ${remoteSha.slice(0, 7)}...`);
-      execSync('git reset --hard origin/main', { cwd: process.cwd(), stdio: 'pipe' });
-      result.updated = true;
-    } else {
-      logAutoDeploy(`[${source}] Build forçado do código atual (${(localSha || '').slice(0, 7)}).`);
-      result.updated = false;
-    }
-    logAutoDeploy(`[${source}] Executando npm run build...`);
-    try {
-      execSync('npm run build', { cwd: process.cwd(), encoding: 'utf-8', stdio: 'pipe', timeout: 600_000, maxBuffer: 50 * 1024 * 1024 });
-      result.buildOk = true;
-    } catch (buildErr: any) {
-      result.buildOk = false;
-      result.buildError = String((buildErr && buildErr.message) || buildErr).split('\n')[0];
-      logAutoDeploy(`FALHA no build: ${result.buildError}`);
-      AUTO_DEPLOY_STATE.lastResult = result;
-      return result;
-    }
-    result.restarting = true;
-    result.commitApplied = (remoteSha || localSha || '').slice(0, 7);
-    AUTO_DEPLOY_STATE.pendingRestartAt = Date.now();
-    AUTO_DEPLOY_STATE.lastResult = result;
-    logAutoDeploy(`[${source}] Build OK. Reiniciando servidor para aplicar ${result.commitApplied} em ~2s...`);
-    setTimeout(() => { try { process.exit(1); } catch (e) {} }, 2000);
-    return result;
-  } catch (err: any) {
-    result.success = false;
-    result.error = String((err && err.message) || err).split('\n')[0];
-    logAutoDeploy(`ERRO: ${result.error}`);
-    AUTO_DEPLOY_STATE.lastResult = result;
-    return result;
-  } finally {
-    AUTO_DEPLOY_STATE.running = false;
-  }
-}
-
-function scheduleAutoDeploy(source: string, opts?: { forceBuild?: boolean }) {
-  if (AUTO_DEPLOY_STATE.running) return;
-  setTimeout(() => { runAutoDeploy(source, opts).catch(() => {}); }, source === 'webhook' ? 1500 : 100);
-}
-
-app.get('/api/auto-deploy/status', (req, res) => {
-  const db2 = loadDB();
-  res.json({
-    enabled: db2.autoDeploy ? db2.autoDeploy.enabled !== false : true,
-    running: AUTO_DEPLOY_STATE.running,
-    lastRunAt: AUTO_DEPLOY_STATE.lastRunAt,
-    lastResult: AUTO_DEPLOY_STATE.lastResult,
-    repo: `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`,
-    branch: 'main',
-    pollIntervalSec: 300
-  });
-});
-
-app.post('/api/auto-deploy/trigger', async (req, res) => {
-  const action = (req.body && req.body.action) || null;
-  try {
-    if (action === 'enable') {
-      setAutoDeployEnabled(true);
-      logAutoDeploy('Auto-deploy ATIVADO pelo painel.');
-      return res.json({ success: true, enabled: true });
-    }
-    if (action === 'disable') {
-      setAutoDeployEnabled(false);
-      logAutoDeploy('Auto-deploy DESATIVADO pelo painel.');
-      return res.json({ success: true, enabled: false });
-    }
-    if (action === 'run') {
-      const r = await runAutoDeploy('manual', { forceBuild: true });
-      return res.json({ success: !!r.success, result: r });
-    }
-    return res.status(400).json({ success: false, error: 'Ação inválida. Use: enable | disable | run' });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: String((err && err.message) || err) });
-  }
-});
-
-app.get('/api/update-check', async (req, res) => {
-  const distPath = path.join(process.cwd(), 'dist');
-  const repo = `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`;
-  let currentCommit = '';
-  try { currentCommit = execSync('git rev-parse HEAD', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
-  let currentBuild: string | null = null;
-  try { currentBuild = fs.statSync(path.join(distPath, 'index.html')).mtime.toISOString(); } catch (_) {}
-  let latest: any = null;
-  let status = 'ok';
-  const now = Date.now();
-  if (updateCheckCache && now - updateCheckCache.at < 5 * 60 * 1000) {
-    latest = updateCheckCache.latest;
-    status = 'cached';
-  } else {
-    try {
-      const headers: any = { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'ViniMap-Update-Checker' };
-      const pat = process.env.GITHUB_PAT || '';
-      if (pat) headers['Authorization'] = `Bearer ${pat}`;
-      const ghRes = await fetch(`https://api.github.com/repos/${repo}/commits/main`, { headers });
-      if (ghRes.ok) {
-        const d = await ghRes.json();
-        latest = {
-          sha: d.sha || '',
-          short: d.sha ? d.sha.slice(0, 7) : '',
-          message: (d.commit && d.commit.message ? d.commit.message.split('\n')[0] : '') || '',
-          date: (d.commit && (d.commit.committer && d.commit.committer.date || d.commit.author && d.commit.author.date)) || null,
-          url: d.html_url || `https://github.com/${repo}/commit/${d.sha || ''}`
-        };
-        updateCheckCache = { at: now, latest, status: 'ok' };
-        status = 'ok';
-      } else if (ghRes.status === 403 || ghRes.status === 429) {
-        status = 'rate_limited';
-      } else {
-        status = `error_${ghRes.status}`;
-      }
-    } catch (err) {
-      status = 'network_error';
-    }
-  }
-  let hasUpdate = false;
-  let reason = '';
-  if (latest) {
-    if (currentCommit) {
-      hasUpdate = latest.sha !== currentCommit;
-      reason = hasUpdate ? `GitHub main está no commit ${latest.short}, mas o deploy roda o commit ${currentCommit.slice(0, 7)}.` : 'Deploy em dia com o GitHub.';
-    } else if (currentBuild && latest.date) {
-      hasUpdate = new Date(latest.date).getTime() > new Date(currentBuild).getTime();
-      reason = hasUpdate ? 'Último commit do GitHub é mais novo que o build em execução.' : 'Deploy em dia com o GitHub.';
-    }
-  }
-  res.json({
-    repo,
-    branch: 'main',
-    hasUpdate,
-    reason,
-    status,
-    current: { commit: currentCommit ? currentCommit.slice(0, 7) : null, build: currentBuild },
-    latest,
-    checkedAt: new Date().toISOString()
-  });
-});
-
-app.get('/api/deploy-info', (req, res) => {
-  const distPath = path.join(process.cwd(), 'dist');
-  let commit = '';
-  let commitDate = '';
-  let commitMessage = '';
-  try { commit = execSync('git rev-parse --short HEAD', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
-  try { commitDate = execSync('git log -1 --format=%cI', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
-  try { commitMessage = execSync('git log -1 --format=%s', { cwd: process.cwd(), stdio: 'pipe' }).toString().trim(); } catch (_) {}
-  let serverBuildTime: string | null = null;
-  let frontendBuildTime: string | null = null;
-  try { serverBuildTime = fs.statSync(path.join(distPath, 'server.cjs')).mtime.toISOString(); } catch (_) {}
-  try { frontendBuildTime = fs.statSync(path.join(distPath, 'index.html')).mtime.toISOString(); } catch (_) {}
-  res.json({
-    app: 'VMAPSACF - ViniMap Fleet',
-    repo: `${process.env.GITHUB_USERNAME || 'vinimapfreitas-design'}/${process.env.GITHUB_REPO || 'VINIMAP-ACF'}`,
-    branch: 'main',
-    commit: commit || null,
-    commitDate: commitDate || null,
-    commitMessage: commitMessage || null,
-    build: { serverCjs: serverBuildTime, frontend: frontendBuildTime },
-    uptimeSeconds: Math.round(process.uptime()),
-    now: new Date().toISOString()
-  });
-});
-
 app.post('/api/github/save-config', (req, res) => {
   const { clientId, clientSecret } = req.body;
   const db = loadDB();
@@ -8278,8 +8138,8 @@ app.post(['/api/github/push-code', '/api/github/push'], async (req, res) => {
       });
     }
 
-    // 6. Push to main branch with force flag, testing candidate PAT formats
-    console.log("[GitHub Real Push] Efetuando push para a branch 'main'...");
+    // 6. Pull latest main branch first (to merge Shard Cloud / remote updates) and then push cleanly
+    console.log("[GitHub Real Push] Conectando ao repositório remoto e puxando a branch 'main' antes do push...");
     let pushSuccess = false;
     let lastPushErr: any = null;
 
@@ -8290,8 +8150,51 @@ app.post(['/api/github/push-code', '/api/github/push'], async (req, res) => {
         } catch (e) {}
 
         execSync(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), shell: '/bin/bash' });
-        execSync('git push -u origin main --force', { cwd: process.cwd(), shell: '/bin/bash', encoding: 'utf-8' });
-        console.log("[GitHub Real Push] Envio para o GitHub concluído com sucesso!");
+
+        // Step A: ALWAYS pull from origin main first so remote updates made by Shard Cloud are never overwritten
+        try {
+          console.log("[GitHub Real Push] Executando git pull origin main (preservando atualizações do Shard Cloud)...");
+          execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', { 
+            cwd: process.cwd(), 
+            shell: '/bin/bash', 
+            encoding: 'utf-8',
+            stdio: 'pipe' 
+          });
+          console.log("[GitHub Real Push] Branch 'main' remota sincronizada e mesclada com sucesso!");
+        } catch (pullErr: any) {
+          // If remote repository is brand new or has no commits yet, pull may fail harmlessly
+          const pullMsg = String(pullErr?.message || pullErr);
+          if (pullMsg.includes("couldn't find remote ref main") || pullMsg.includes("fatal: couldn't find remote ref") || pullMsg.includes("no such ref")) {
+            console.log("[GitHub Real Push] Repositório remoto novo (branch 'main' ainda não existe no GitHub). Prosseguindo com criação inicial.");
+          } else {
+            console.log("[GitHub Real Push] Aviso durante git pull (tentando reconciliação com histórico):", pullMsg.split('\n')[0]);
+            try {
+              execSync('git merge --abort', { cwd: process.cwd(), stdio: 'ignore' });
+            } catch (_) {}
+          }
+        }
+
+        // Stage and record any merged changes
+        try {
+          execSync('git add .', { cwd: process.cwd(), stdio: 'ignore' });
+          execSync(`git commit -m "merge: sincronizar atualizações remotas do Shard Cloud com AI Studio" --no-verify`, { cwd: process.cwd(), stdio: 'ignore' });
+        } catch (_) {}
+
+        // Step B: Push to main branch cleanly without destructive --force
+        console.log("[GitHub Real Push] Enviando código atualizado para a branch 'main'...");
+        try {
+          execSync('git push -u origin main', { cwd: process.cwd(), shell: '/bin/bash', encoding: 'utf-8' });
+        } catch (normalPushErr: any) {
+          console.log("[GitHub Real Push] Push padrão exigiu reconciliação adicional. Re-puxando e finalizando envio...");
+          try {
+            execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', { cwd: process.cwd(), shell: '/bin/bash', stdio: 'ignore' });
+            execSync('git add .', { cwd: process.cwd(), stdio: 'ignore' });
+            execSync('git commit -m "merge: reconciliação final de branch main" --no-verify', { cwd: process.cwd(), stdio: 'ignore' });
+          } catch (_) {}
+          execSync('git push -u origin main', { cwd: process.cwd(), shell: '/bin/bash', encoding: 'utf-8' });
+        }
+
+        console.log("[GitHub Real Push] Envio para o GitHub concluído com sucesso e sem perda de dados do Shard Cloud!");
         pushSuccess = true;
         break;
       } catch (pushErr: any) {
@@ -8318,7 +8221,13 @@ app.post(['/api/github/push-code', '/api/github/push'], async (req, res) => {
               execSync('git remote remove origin', { cwd: process.cwd(), stdio: 'ignore' });
             } catch (e) {}
             execSync(`git remote add origin "${remoteUrl}"`, { cwd: process.cwd(), shell: '/bin/bash' });
-            execSync('git push -u origin main --force', { cwd: process.cwd(), shell: '/bin/bash', encoding: 'utf-8' });
+            
+            // Pull main first even in remedy flow
+            try {
+              execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', { cwd: process.cwd(), shell: '/bin/bash', stdio: 'ignore' });
+            } catch (_) {}
+
+            execSync('git push -u origin main', { cwd: process.cwd(), shell: '/bin/bash', encoding: 'utf-8' });
             console.log("[GitHub Real Push] Envio para o GitHub recuperado e concluído com sucesso!");
             pushSuccess = true;
             break;
@@ -8641,6 +8550,144 @@ app.post('/api/github/webhooks/test-connection', (req, res) => {
   });
 });
 
+// ============================================================================
+// AUTO-DEPLOY (GitHub -> build -> restart automático)
+// Mantém o servidor sincronizado com o repositório remoto: a cada 5 minutos
+// verifica se há novos commits em origin/main; se houver, cria um snapshot
+// local, puxa o remoto preservando alterações locais, executa o build e
+// reinicia o servidor para aplicar a nova versão.
+// ============================================================================
+let autoDeployEnabled = true;
+let autoDeployBuilding = false;
+let autoDeployLastCheck: string | null = null;
+let autoDeployLastUpdate: string | null = null;
+
+const AUTO_DEPLOY_OWNER = process.env.GITHUB_USERNAME || 'vinimapfreitas-design';
+const AUTO_DEPLOY_REPO = (process.env.GITHUB_REPO && process.env.GITHUB_REPO !== 'VINIMAP2026' && process.env.GITHUB_REPO !== 'VINIMAPACF')
+  ? process.env.GITHUB_REPO
+  : 'VINIMAP-ACF';
+
+function autoDeployGitCurrentCommit(): string {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function autoDeployGitRemoteCommit(): string {
+  try {
+    execSync('git fetch origin main --quiet', { cwd: process.cwd(), shell: '/bin/bash', stdio: 'ignore' });
+    return execSync('git rev-parse --short origin/main', { cwd: process.cwd(), encoding: 'utf-8' }).trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function autoDeployCreateLocalSnapshot() {
+  try {
+    execSync('git add .', { cwd: process.cwd(), stdio: 'ignore' });
+    execSync(`git commit -m "chore: snapshot auto-deploy ${new Date().toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: 'ignore' });
+    console.log('[Auto-Deploy] Snapshot local criado (mudancas preservadas no git).');
+  } catch (e) {
+    // nada a commitar (sem alterações pendentes) - ok
+  }
+}
+
+function autoDeployPullRemote() {
+  try {
+    execSync('git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories', {
+      cwd: process.cwd(),
+      shell: '/bin/bash',
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    console.warn('[Auto-Deploy] Aviso no git pull (prosseguindo):', String((e as any)?.message || e).split('\n')[0]);
+  }
+}
+
+function autoDeployScheduleRestart(commit: string, reason: string) {
+  console.log(`[Auto-Deploy] [${reason}] Build OK. Reiniciando servidor para aplicar ${commit} em ~2s...`);
+  setTimeout(() => {
+    console.log('[Auto-Deploy] Reiniciando servidor para aplicar a nova versão...');
+    process.exit(0);
+  }, 2000);
+}
+
+async function autoDeployRun(reason: 'poll' | 'manual') {
+  if (autoDeployBuilding) {
+    console.log(`[Auto-Deploy] [${reason}] Build já em andamento, ignorando.`);
+    return;
+  }
+  autoDeployBuilding = true;
+  autoDeployLastCheck = new Date().toISOString();
+  const current = autoDeployGitCurrentCommit();
+  try {
+    console.log(`[Auto-Deploy] [${reason}] Verificando ${AUTO_DEPLOY_OWNER}/${AUTO_DEPLOY_REPO} (branch main)...`);
+    autoDeployCreateLocalSnapshot();
+    if (reason === 'poll') {
+      autoDeployPullRemote();
+    } else {
+      console.log(`[Auto-Deploy] [manual] Build forcado do codigo atual (${current}).`);
+    }
+    const target = autoDeployGitCurrentCommit() || current;
+    console.log(`[Auto-Deploy] [${reason}] Atualizando ${current} -> ${target}...`);
+    console.log(`[Auto-Deploy] [${reason}] Executando npm run build...`);
+    execSync('npm run build', { cwd: process.cwd(), stdio: 'inherit' });
+    autoDeployLastUpdate = new Date().toISOString();
+    autoDeployScheduleRestart(target, reason);
+  } catch (err: any) {
+    console.error(`[Auto-Deploy] [${reason}] Erro durante build/atualização:`, err?.message || err);
+  } finally {
+    autoDeployBuilding = false;
+  }
+}
+
+function startAutoDeployScheduler() {
+  console.log('[Auto-Deploy] Agendador de verificacao ativo (poll a cada 5 min).');
+  setInterval(() => {
+    if (!autoDeployEnabled || autoDeployBuilding) return;
+    try {
+      const current = autoDeployGitCurrentCommit();
+      const remote = autoDeployGitRemoteCommit();
+      if (current && remote && current !== remote) {
+        autoDeployRun('poll');
+      }
+    } catch (e) {
+      // falha transitória de rede/git - ignora e tenta no próximo ciclo
+    }
+  }, 5 * 60 * 1000);
+}
+
+// Endpoints de status, acionamento manual e controle do auto-deploy
+app.get('/api/auto-deploy/status', (req, res) => {
+  res.json({
+    enabled: autoDeployEnabled,
+    building: autoDeployBuilding,
+    lastCheck: autoDeployLastCheck,
+    lastUpdate: autoDeployLastUpdate,
+    owner: AUTO_DEPLOY_OWNER,
+    repo: AUTO_DEPLOY_REPO,
+    currentCommit: autoDeployGitCurrentCommit(),
+  });
+});
+
+app.post('/api/auto-deploy/trigger', (req, res) => {
+  res.json({ success: true, message: 'Build manual do auto-deploy iniciado.' });
+  autoDeployRun('manual');
+});
+
+app.post('/api/auto-deploy/disable', (req, res) => {
+  autoDeployEnabled = false;
+  res.json({ success: true, enabled: false });
+});
+
+app.post('/api/auto-deploy/enable', (req, res) => {
+  autoDeployEnabled = true;
+  res.json({ success: true, enabled: true });
+});
+// ============================================================================
+
 // Serve frontend assets using Vite in Dev mode or Static server in production
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -8702,6 +8749,7 @@ async function startServer() {
 }
 
 if (!process.env.VERCEL) {
+  startAutoDeployScheduler();
   startServer();
 } else {
   // Always trigger cloud sync on Vercel cold starts

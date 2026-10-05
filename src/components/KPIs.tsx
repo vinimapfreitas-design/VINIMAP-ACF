@@ -200,20 +200,134 @@ export default function KPIs({
     });
   }, [orders, startDate]);
 
-  // Rule: On the current day ("Hoje"), only orders launched today are included.
-  // Previous days' orders only enter the list if the date selector is changed to a range that includes them.
-  // Responding in conjunction with partner and courier filters.
+  // Início da filtragem por período: Data de Solicitação (dataSolicitacao) como critério primário soberano.
+  // Demais filtros (parceiro, condutor, status) atuam como critérios secundários.
   const filteredOrders = useMemo(() => {
     return baseOrders.filter(order => {
-      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : ''));
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
       const launchDateISO = parseToISODate(rawDateStr);
       if (!launchDateISO) return false;
       return launchDateISO >= startDate && launchDateISO <= endDate;
     });
   }, [baseOrders, startDate, endDate]);
 
+  // Helper para obter a data efetiva do status
+  // Quando o filtro secundário (status) for aplicado, sincroniza exibindo todos os pedidos do período
+  // solicitado referente àquele status independente da data de solicitação (ex: concluídos no período).
+  const getOrderEffectiveStatusDate = (order: Order, status: OrderStatus): string | null => {
+    if (status === 'delivered') {
+      if (order.deliveryProtocol?.signedAt) {
+        const parsed = parseToISODate(order.deliveryProtocol.signedAt.split(' ')[0] || order.deliveryProtocol.signedAt);
+        if (parsed) return parsed;
+      }
+      if (order.deliveredAt) {
+        const parsed = parseToISODate(order.deliveredAt.split(' ')[0] || order.deliveredAt);
+        if (parsed) return parsed;
+      }
+      if (order.history && Array.isArray(order.history)) {
+        const hist = [...order.history].reverse().find(h => h && h.status === 'delivered');
+        if (hist && hist.time) {
+          const parsed = parseToISODate(hist.time.split(' ')[0] || hist.time);
+          if (parsed) return parsed;
+        }
+      }
+      if (order.status === 'delivered') {
+        const rawTs = Number(order.statusUpdatedAt);
+        if (rawTs > 0) {
+          return formatToBrasiliaISODate(new Date(rawTs));
+        }
+      }
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+      return parseToISODate(rawDateStr);
+    }
+
+    if (status === 'cancelled') {
+      if (order.cancelledAt) {
+        const parsed = parseToISODate(order.cancelledAt.split(' ')[0] || order.cancelledAt);
+        if (parsed) return parsed;
+      }
+      if (order.history && Array.isArray(order.history)) {
+        const hist = [...order.history].reverse().find(h => h && h.status === 'cancelled');
+        if (hist && hist.time) {
+          const parsed = parseToISODate(hist.time.split(' ')[0] || hist.time);
+          if (parsed) return parsed;
+        }
+      }
+      if (order.status === 'cancelled') {
+        const rawTs = Number(order.statusUpdatedAt);
+        if (rawTs > 0) {
+          return formatToBrasiliaISODate(new Date(rawTs));
+        }
+      }
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+      return parseToISODate(rawDateStr);
+    }
+
+    if (status === 'failure') {
+      if (order.failureAt || (order as any).occurrenceAt) {
+        const parsed = parseToISODate((order.failureAt || (order as any).occurrenceAt).split(' ')[0]);
+        if (parsed) return parsed;
+      }
+      if (order.history && Array.isArray(order.history)) {
+        const hist = [...order.history].reverse().find(h => h && (h.status === 'failure' || h.status === 'cancelled'));
+        if (hist && hist.time) {
+          const parsed = parseToISODate(hist.time.split(' ')[0] || hist.time);
+          if (parsed) return parsed;
+        }
+      }
+      if (order.status === 'failure') {
+        const rawTs = Number(order.statusUpdatedAt);
+        if (rawTs > 0) {
+          return formatToBrasiliaISODate(new Date(rawTs));
+        }
+      }
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+      return parseToISODate(rawDateStr);
+    }
+
+    if (status === 'in_route') {
+      if (order.history && Array.isArray(order.history)) {
+        const hist = [...order.history].reverse().find(h => h && h.status === 'in_route');
+        if (hist && hist.time) {
+          const parsed = parseToISODate(hist.time.split(' ')[0] || hist.time);
+          if (parsed) return parsed;
+        }
+      }
+      if (order.status === 'in_route') {
+        const rawTs = Number(order.statusUpdatedAt);
+        if (rawTs > 0) {
+          return formatToBrasiliaISODate(new Date(rawTs));
+        }
+      }
+      if (order.allocatedDate) {
+        const parsed = parseToISODate(order.allocatedDate);
+        if (parsed) return parsed;
+      }
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+      return parseToISODate(rawDateStr);
+    }
+
+    if (status === 'in_progress') {
+      if (order.allocatedDate) {
+        const parsed = parseToISODate(order.allocatedDate);
+        if (parsed) return parsed;
+      }
+      const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+      return parseToISODate(rawDateStr);
+    }
+
+    // pending / default
+    const rawDateStr = order.dataSolicitacao || (typeof order.createdAt === 'string' ? order.createdAt : (typeof order.createdAt === 'number' ? formatToBrasiliaDate(new Date(order.createdAt)) : '')) || order.created_at || '';
+    return parseToISODate(rawDateStr);
+  };
+
   const countForStatus = (status: OrderStatus) => {
-    return filteredOrders.filter(order => order.status === status).length;
+    return baseOrders.filter(order => {
+      if (order.status !== status) return false;
+      const statusDate = getOrderEffectiveStatusDate(order, status);
+      if (!statusDate) return false;
+      return statusDate >= startDate && statusDate <= endDate;
+    }).length;
   };
 
   const totalCount = filteredOrders.length;
@@ -599,7 +713,8 @@ export default function KPIs({
       )}
 
       {/* Standard Market KPI Cards Grid - Clean, Uncluttered & High Contrast */}
-      <div id="kpis-container" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-2.5">
+      {/* Standard Market KPI Cards Grid - Formato Compacto de Altura Menor (não cobrindo as solicitações) */}
+      <div id="kpis-container" className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-2">
         {kpisList.map((kpi) => {
           const IconComp = kpi.icon;
           const isSelected = activeStatus === kpi.statusKey;
@@ -609,37 +724,32 @@ export default function KPIs({
               key={kpi.statusKey}
               id={`kpi-card-${kpi.statusKey}`}
               onClick={() => onCardClick?.(kpi.statusKey, startDate, endDate)}
-              className={`bg-white rounded-xl p-3 border transition-all duration-150 cursor-pointer select-none flex flex-col justify-between hover:shadow-sm ${
+              className={`bg-white rounded-xl px-2.5 py-1.5 border transition-all duration-150 cursor-pointer select-none flex flex-col justify-center hover:shadow-sm ${
                 isSelected
                   ? kpi.activeBorder
                   : 'border-slate-200/90 hover:border-slate-300 shadow-2xs'
               }`}
-              title={`Clique para filtrar por status: ${kpi.title}`}
+              title={`Clique para filtrar por status: ${kpi.title} (${kpi.description})`}
             >
               {/* Card Header: Title + Icon Badge */}
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider truncate">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider truncate">
                   {kpi.title}
                 </span>
-                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${kpi.iconBg}`}>
-                  <IconComp className="h-4 w-4" />
+                <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${kpi.iconBg}`}>
+                  <IconComp className="h-3 w-3" />
                 </div>
               </div>
 
               {/* Card Body: Metric Value + Percent Badge */}
-              <div className="mt-2.5 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-slate-900 tracking-tight font-sans">
+              <div className="mt-1 flex items-baseline justify-between gap-1">
+                <span className="text-lg font-black text-slate-900 tracking-tight font-sans leading-none">
                   {kpi.value}
                 </span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${kpi.badgeBg}`}>
+                <span className={`text-[9px] font-bold px-1 py-0.5 rounded border leading-none ${kpi.badgeBg}`}>
                   {kpi.percentText}
                 </span>
               </div>
-
-              {/* Card Subtitle */}
-              <p className="text-[10px] text-slate-400 font-medium mt-1 truncate">
-                {kpi.description}
-              </p>
             </div>
           );
         })}

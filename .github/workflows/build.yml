@@ -35,5 +35,8 @@ jobs:
             echo "dist sem alteracoes - nada para comitar"
           else
             git commit -m "chore: build dist"
-            git push origin HEAD || echo "Push pelo GitHub Actions ignorado (branch protegida ou restrição de commit direto)"
+            # Push explícito para a branch main (o Actions roda em detached HEAD,
+            # então 'git push origin HEAD' sozinho falha silenciosamente e o dist
+            # nunca chega ao repositório, deixando o deploy com bundle quebrado).
+            git push origin HEAD:main || echo "Push pelo GitHub Actions ignorado (branch protegida ou restrição de commit direto)"
           fi

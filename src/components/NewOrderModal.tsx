@@ -487,11 +487,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
 
               {/* Suggestions Dropdown when multiple CEPs match the address - Formato Menor e Compacto */}
               {addressSuggestions.length > 0 && (
-                <div className="mt-1.5 bg-white border border-blue-200/90 rounded-xl p-1.5 shadow-md max-h-36 overflow-y-auto space-y-0.5 animate-in fade-in zoom-in-95">
-                  <div className="text-[9px] font-bold text-slate-500 uppercase px-1.5 py-0.5 flex items-center justify-between border-b border-slate-100 pb-1 mb-0.5">
+                <div className="mt-1 bg-white border border-blue-200/90 rounded-lg p-1 shadow-md max-h-24 overflow-y-auto space-y-0.5 animate-in fade-in zoom-in-95">
+                  <div className="text-[8.5px] font-bold text-slate-500 uppercase px-1 py-0.5 flex items-center justify-between border-b border-slate-100 pb-0.5 mb-0.5">
                     <span className="flex items-center gap-1 text-blue-600">
-                      <Sparkles size={10} />
-                      Sugestões de CEP encontradas ({addressSuggestions.length}):
+                      <Sparkles size={9} />
+                      Sugestões ({addressSuggestions.length}):
                     </span>
                     <button
                       type="button"
@@ -507,17 +507,17 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
                       key={`${item.cleanCep}-${idx}`}
                       type="button"
                       onClick={() => applyAddressMatch(item)}
-                      className="w-full text-left px-2 py-1 hover:bg-blue-50/80 rounded-lg transition-colors flex items-center justify-between gap-2 text-xs group cursor-pointer"
+                      className="w-full text-left px-1.5 py-0.5 hover:bg-blue-50/80 rounded transition-colors flex items-center justify-between gap-1.5 text-[10px] group cursor-pointer"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-slate-800 text-[11px] group-hover:text-blue-700 truncate leading-tight">
+                        <div className="font-semibold text-slate-800 text-[10px] group-hover:text-blue-700 truncate leading-tight">
                           {item.logradouro} {item.complemento ? `(${item.complemento})` : ''}
                         </div>
-                        <div className="text-[9px] text-slate-400 truncate leading-tight">
-                          {item.bairro} - {item.cidade}/{item.uf} • {item.region}
+                        <div className="text-[8.5px] text-slate-400 truncate leading-none">
+                          {item.bairro} - {item.cidade}/{item.uf}
                         </div>
                       </div>
-                      <div className="shrink-0 px-1.5 py-0.5 bg-blue-50 text-blue-700 font-mono font-bold text-[10px] rounded border border-blue-200 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <div className="shrink-0 px-1 py-0.2 bg-blue-50 text-blue-700 font-mono font-bold text-[9px] rounded border border-blue-200 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                         {item.cep}
                       </div>
                     </button>
