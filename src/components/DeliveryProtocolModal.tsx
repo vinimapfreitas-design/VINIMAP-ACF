@@ -9,6 +9,7 @@ interface DeliveryProtocolModalProps {
   partnerName?: string;
   isOpen: boolean;
   onClose: () => void;
+  requirePhoto?: boolean;
   onConfirmProtocol: (orderId: string, protocolData: {
     photoUrl?: string;
     signatureData: string;
@@ -23,6 +24,7 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
   partnerName,
   isOpen,
   onClose,
+  requirePhoto = true,
   onConfirmProtocol
 }) => {
   const [signedName, setSignedName] = useState(order.customerName || '');
@@ -153,10 +155,18 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
   const handleSaveProtocol = () => {
     setErrorMsg(null);
 
-    // 1. Foto é obrigatória
-    if (!photoUrl) {
-      setErrorMsg('A Foto do comprovante ou canhoto é OBRIGATÓRIA para confirmar a entrega.');
-      return;
+    // 1. Validação de Foto e Assinatura conforme exigência configurada no cadastro do condutor
+    if (requirePhoto) {
+      if (!photoUrl) {
+        setErrorMsg('A Foto do comprovante ou canhoto é OBRIGATÓRIA para confirmar a entrega deste condutor.');
+        return;
+      }
+    } else {
+      // Foto não é obrigatória: o pedido pode ser concluído apenas com a assinatura digital
+      if (!hasSignature && !photoUrl) {
+        setErrorMsg('Como a exigência de foto está desativada, a Assinatura Digital na tela é OBRIGATÓRIA para concluir a entrega.');
+        return;
+      }
     }
 
     // 2. Nome do recebedor é obrigatório
@@ -165,7 +175,7 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
       return;
     }
 
-    // 3. Assinatura digital é opcional
+    // 3. Assinatura digital
     const canvas = canvasRef.current;
     let signatureData = '';
     if (hasSignature && canvas) {
@@ -234,16 +244,22 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
             </div>
           )}
 
-          {/* SEQUÊNCIA 1: Foto Comprovante / Canhoto (OBRIGATÓRIO) */}
+          {/* SEQUÊNCIA 1: Foto Comprovante / Canhoto */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 font-extrabold text-xs uppercase tracking-wider">
                 <Camera size={16} className="text-blue-600" />
                 <span>1. Foto do Comprovante ou Canhoto</span>
               </div>
-              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
-                Obrigatório *
-              </span>
+              {requirePhoto ? (
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                  Obrigatório *
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  Opcional
+                </span>
+              )}
             </div>
 
             <input
@@ -298,7 +314,11 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
                 <div className="text-center">
                   <span className="text-xs font-extrabold text-slate-800 block">Tirar Foto do Canhoto / Comprovante</span>
                   <span className="text-[11px] text-blue-600 font-semibold block mt-0.5">Toque aqui para abrir a câmera do celular</span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Obrigatório registrar a foto física do pacote ou documento assinado</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">
+                    {requirePhoto 
+                      ? "Obrigatório registrar a foto física do pacote ou documento assinado" 
+                      : "Opcional: o pedido pode ser concluído apenas com a assinatura digital na tela abaixo"}
+                  </span>
                 </div>
               </button>
             )}
@@ -358,7 +378,7 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
             </div>
           </div>
 
-          {/* SEQUÊNCIA 3: Assinatura Digital na Tela (OPCIONAL) */}
+          {/* SEQUÊNCIA 3: Assinatura Digital na Tela */}
           <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-900 font-extrabold text-xs uppercase tracking-wider">
@@ -367,9 +387,15 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                  Opcional
-                </span>
+                {!requirePhoto ? (
+                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                    Obrigatório (sem foto) *
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                    Opcional
+                  </span>
+                )}
                 {hasSignature && (
                   <button
                     type="button"
@@ -384,7 +410,9 @@ export const DeliveryProtocolModal: React.FC<DeliveryProtocolModalProps> = ({
             </div>
 
             <p className="text-[10px] text-slate-500">
-              Caso o recebedor prefira assinar no celular, use o espaço abaixo com o dedo. (Não obrigatório se a foto do comprovante foi tirada).
+              {!requirePhoto 
+                ? "Como a exigência de foto está desativada para este condutor, a assinatura digital na tela com o dedo é necessária para concluir a entrega."
+                : "Caso o recebedor prefira assinar no celular, use o espaço abaixo com o dedo. (Não obrigatório se a foto do comprovante foi tirada)."}
             </p>
 
             <div className="border-2 border-dashed border-slate-300 rounded-2xl bg-white relative overflow-hidden select-none touch-none shadow-inner">

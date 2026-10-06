@@ -18,6 +18,7 @@ export interface Courier {
   repasseFormato?: 'tabela_cep' | 'fixo' | 'porcentagem';
   repassePorcentagem?: number;
   showDeliveryFee?: boolean;
+  requirePhoto?: boolean;
   region?: string;
   plate?: string;
   activeSessionToken?: string;
@@ -184,6 +185,7 @@ export interface Operator {
   canCreate?: boolean;
   showDeliveryFee?: boolean;
   allowPeriodHistory?: boolean;
+  requirePhoto?: boolean;
 }
 
 // Resilient helper to match client codes across different systems and imports

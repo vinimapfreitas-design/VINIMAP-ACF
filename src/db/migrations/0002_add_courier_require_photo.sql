@@ -1,0 +1,18 @@
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "requirePhoto" boolean DEFAULT true;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "require_photo" boolean DEFAULT true;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "showDeliveryFee" boolean DEFAULT false;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "show_delivery_fee" boolean DEFAULT false;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "allowPeriodHistory" boolean DEFAULT false;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "allow_period_history" boolean DEFAULT false;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasseFormato" text DEFAULT 'tabela_cep';
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasse_formato" text DEFAULT 'tabela_cep';
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repassePorcentagem" real DEFAULT 80;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasse_porcentagem" real DEFAULT 80;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "activeSessionToken" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "active_session_token" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "activeDeviceId" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "active_device_id" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "lastLoginAt" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "last_login_at" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "lastLoginDevice" text;
+ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "last_login_device" text;

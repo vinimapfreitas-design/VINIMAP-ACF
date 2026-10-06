@@ -364,6 +364,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         vehicle: matchedCourier.vehicle,
         showDeliveryFee: matchedCourier.showDeliveryFee === true,
         allowPeriodHistory: matchedCourier.allowPeriodHistory === true,
+        requirePhoto: matchedCourier.requirePhoto !== false,
         role: 'driver',
         permissions: ['driver'],
         sessionToken: localSessionToken,

@@ -68,6 +68,7 @@ export default function CouriersTab({
   const [isActive, setIsActive] = useState(true);
   const [allowPeriodHistory, setAllowPeriodHistory] = useState(false);
   const [showDeliveryFee, setShowDeliveryFee] = useState(false);
+  const [requirePhoto, setRequirePhoto] = useState(true);
   const [repasseTaxa, setRepasseTaxa] = useState('9.50');
   const [repasseFormato, setRepasseFormato] = useState<'tabela_cep' | 'fixo' | 'porcentagem'>('tabela_cep');
   const [repassePorcentagem, setRepassePorcentagem] = useState('80');
@@ -96,6 +97,7 @@ export default function CouriersTab({
     setIsActive(courier.isActive !== false);
     setAllowPeriodHistory(!!courier.allowPeriodHistory);
     setShowDeliveryFee(!!courier.showDeliveryFee);
+    setRequirePhoto(courier.requirePhoto !== false);
     setRepasseTaxa(courier.repasseTaxa !== undefined ? String(courier.repasseTaxa) : '9.50');
     setRepasseFormato(courier.repasseFormato || 'tabela_cep');
     setRepassePorcentagem(courier.repassePorcentagem !== undefined ? String(courier.repassePorcentagem) : '80');
@@ -116,6 +118,7 @@ export default function CouriersTab({
     setIsActive(true);
     setAllowPeriodHistory(false);
     setShowDeliveryFee(false);
+    setRequirePhoto(true);
     setRepasseTaxa('9.50');
     setRepasseFormato('tabela_cep');
     setRepassePorcentagem('80');
@@ -168,7 +171,8 @@ export default function CouriersTab({
           repasseTaxa: parseFloat(repasseTaxa) || 9.50,
           repasseFormato,
           repassePorcentagem: parseFloat(repassePorcentagem) || 80,
-          showDeliveryFee
+          showDeliveryFee,
+          requirePhoto
         });
 
         setRegSuccess(`Entregador "${name}" atualizado com sucesso!`);
@@ -196,7 +200,8 @@ export default function CouriersTab({
           repasseTaxa: parseFloat(repasseTaxa) || 9.50,
           repasseFormato,
           repassePorcentagem: parseFloat(repassePorcentagem) || 80,
-          showDeliveryFee
+          showDeliveryFee,
+          requirePhoto
         });
 
         setRegSuccess(`Entregador "${name}" cadastrado com login de telefone e senha!`);
@@ -212,6 +217,7 @@ export default function CouriersTab({
         setIsActive(true);
         setAllowPeriodHistory(false);
         setShowDeliveryFee(false);
+        setRequirePhoto(true);
       }
     } catch (err: any) {
       setRegError(err.message || 'Erro ao salvar entregador.');
@@ -452,6 +458,25 @@ export default function CouriersTab({
             <span className="text-xs font-semibold text-slate-700 select-none">
               Exibir taxa de entrega no aplicativo do condutor
             </span>
+          </label>
+
+          <label className="flex items-start gap-2.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100/70 transition-colors">
+            <input
+              type="checkbox"
+              checked={requirePhoto}
+              onChange={(e) => setRequirePhoto(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer mt-0.5"
+            />
+            <div className="flex flex-col select-none">
+              <span className="text-xs font-semibold text-slate-700">
+                Exigir foto do comprovante para conclusão do pedido
+              </span>
+              <span className="text-[10px] text-slate-500 font-normal mt-0.5">
+                {requirePhoto
+                  ? "Ativo: O condutor é obrigado a tirar a foto para concluir a entrega."
+                  : "Desativado: O pedido pode ser concluído apenas com a assinatura digital."}
+              </span>
+            </div>
           </label>
         </div>
       </div>
@@ -707,6 +732,13 @@ export default function CouriersTab({
                           <span className="text-slate-300">•</span>
                           <span className="font-semibold text-indigo-700 bg-indigo-50 border border-indigo-100/50 px-1.5 py-0.5 rounded text-[9px] flex items-center gap-0.5">
                             Repasse: R$ {(c.repasseTaxa !== undefined ? c.repasseTaxa : 9.50).toFixed(2).replace('.', ',')}
+                          </span>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold border flex items-center gap-0.5 ${
+                            c.requirePhoto === false 
+                              ? 'bg-amber-50 text-amber-800 border-amber-200/70' 
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200/70'
+                          }`}>
+                            📸 Foto: {c.requirePhoto === false ? 'Opcional (Assinatura)' : 'Obrigatória'}
                           </span>
                         </p>
                       </div>

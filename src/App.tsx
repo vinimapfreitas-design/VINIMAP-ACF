@@ -723,14 +723,16 @@ export default function App() {
           login: verifiedCourier.phone || verifiedCourier.id,
           phone: verifiedCourier.phone || currentUser.phone,
           showDeliveryFee: verifiedCourier.showDeliveryFee === true,
-          allowPeriodHistory: verifiedCourier.allowPeriodHistory === true
+          allowPeriodHistory: verifiedCourier.allowPeriodHistory === true,
+          requirePhoto: verifiedCourier.requirePhoto !== false
         };
         if (
           currentUser.id !== verifiedCourier.id || 
           currentUser.name !== verifiedCourier.name || 
           currentUser.login !== verifiedCourier.phone ||
           currentUser.showDeliveryFee !== (verifiedCourier.showDeliveryFee === true) ||
-          currentUser.allowPeriodHistory !== (verifiedCourier.allowPeriodHistory === true)
+          currentUser.allowPeriodHistory !== (verifiedCourier.allowPeriodHistory === true) ||
+          currentUser.requirePhoto !== (verifiedCourier.requirePhoto !== false)
         ) {
           setCurrentUser(updatedUser);
           localStorage.setItem('vinimap_current_operator', JSON.stringify(updatedUser));

@@ -251,15 +251,16 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
 
   // Check if delivery fee should be displayed on the driver device according to courier registration
   const canShowDeliveryFee = Boolean(
-    selectedCourier?.showDeliveryFee ??
-    (typeof window !== 'undefined' ? (() => {
-      try {
-        const op = JSON.parse(localStorage.getItem('vinimap_current_operator') || '{}');
-        return op?.showDeliveryFee;
-      } catch (_) {
-        return false;
-      }
-    })() : false)
+    selectedCourier 
+      ? selectedCourier.showDeliveryFee === true 
+      : (typeof window !== 'undefined' ? (() => {
+          try {
+            const op = JSON.parse(localStorage.getItem('vinimap_current_operator') || '{}');
+            return op?.role === 'driver' && op?.showDeliveryFee === true;
+          } catch (_) {
+            return false;
+          }
+        })() : false)
   );
 
   // Synchronize default driver selection when couriers load without erratic order-based flipping
@@ -2004,7 +2005,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                     className="py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm sm:text-base rounded-2xl shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
                   >
                     <Camera size={20} />
-                    <span>CONCLUIR COM FOTO & ASSINATURA</span>
+                    <span>{selectedCourier?.requirePhoto === false ? 'CONCLUIR COM ASSINATURA' : 'CONCLUIR COM FOTO & ASSINATURA'}</span>
                   </button>
 
                   <button
@@ -2060,6 +2061,7 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
           isOpen={!!selectedOrderForProtocol}
           onClose={() => setSelectedOrderForProtocol(null)}
           onConfirmProtocol={handleConfirmProtocol}
+          requirePhoto={selectedCourier?.requirePhoto !== false}
         />
       )}
 

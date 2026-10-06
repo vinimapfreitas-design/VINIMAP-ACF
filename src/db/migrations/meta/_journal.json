@@ -15,6 +15,13 @@
       "when": 1788395551000,
       "tag": "0001_add_order_numero_and_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788395552000,
+      "tag": "0002_add_courier_require_photo",
+      "breakpoints": true
     }
   ]
 }

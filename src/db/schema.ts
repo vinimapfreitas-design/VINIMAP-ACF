@@ -93,6 +93,7 @@ export const couriers = pgTable("couriers", {
   repasseFormato: text("repasseFormato"),
   repassePorcentagem: real("repassePorcentagem"),
   showDeliveryFee: boolean("showDeliveryFee"),
+  requirePhoto: boolean("requirePhoto").default(true),
   activeSessionToken: text("activeSessionToken"),
   activeDeviceId: text("activeDeviceId"),
   lastLoginAt: text("lastLoginAt"),

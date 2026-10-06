@@ -1266,10 +1266,11 @@ async function saveAllToSupabase(data: any) {
     // 1. Sync Couriers
     if (Array.isArray(data.couriers)) {
       for (const c of data.couriers) {
-        await db.insert(dbSchema.couriers).values({
-          id: c.id,
-          name: c.name,
-          avatar: c.avatar,
+        if (!c || !c.id) continue;
+        const courierValues = {
+          id: String(c.id),
+          name: c.name || "Condutor",
+          avatar: c.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80",
           status: c.status || "offline",
           rating: Number(c.rating) || 5.0,
           vehicle: c.vehicle || "motorcycle",
@@ -1281,24 +1282,45 @@ async function saveAllToSupabase(data: any) {
           password: c.password ? String(c.password) : null,
           isActive: c.isActive !== false,
           repasseTaxa: Number(c.repasseTaxa) !== undefined && c.repasseTaxa !== null ? Number(c.repasseTaxa) : 9.50,
-        }).onConflictDoUpdate({
-          target: dbSchema.couriers.id,
-          set: {
-            name: c.name,
-            avatar: c.avatar,
-            status: c.status || "offline",
-            rating: Number(c.rating) || 5.0,
-            vehicle: c.vehicle || "motorcycle",
-            ordersCompleted: Number(c.ordersCompleted) || 0,
-            currentLat: Number(c.currentLat) || -23.55052,
-            currentLng: Number(c.currentLng) || -46.633308,
-            angle: Number(c.angle) || 0,
-            phone: c.phone || "",
-            password: c.password ? String(c.password) : null,
-            isActive: c.isActive !== false,
-            repasseTaxa: Number(c.repasseTaxa) !== undefined && c.repasseTaxa !== null ? Number(c.repasseTaxa) : 9.50,
+          repasseFormato: c.repasseFormato || 'tabela_cep',
+          repassePorcentagem: Number(c.repassePorcentagem) || 80,
+          showDeliveryFee: c.showDeliveryFee === true,
+          requirePhoto: c.requirePhoto !== false,
+          activeSessionToken: c.activeSessionToken || null,
+          activeDeviceId: c.activeDeviceId || null,
+          lastLoginAt: c.lastLoginAt || null,
+          lastLoginDevice: c.lastLoginDevice || null,
+        };
+
+        try {
+          await db.insert(dbSchema.couriers).values(courierValues).onConflictDoUpdate({
+            target: dbSchema.couriers.id,
+            set: courierValues
+          });
+        } catch (cErr: any) {
+          if (sqlClient && cErr?.message && /column "([^"]+)" of relation "couriers" does not exist/i.test(cErr.message)) {
+            const match = cErr.message.match(/column "([^"]+)" of relation "couriers" does not exist/i);
+            const missingCol = match ? match[1] : null;
+            if (missingCol) {
+              try {
+                console.log(`[Supabase Database] Auto-criando coluna ausente "${missingCol}" na tabela 'couriers'...`);
+                const colType = (missingCol === 'requirePhoto' || missingCol === 'require_photo' || missingCol === 'showDeliveryFee' || missingCol === 'show_delivery_fee' || missingCol === 'allowPeriodHistory' || missingCol === 'allow_period_history' || missingCol === 'isActive' || missingCol === 'is_active') 
+                  ? 'boolean DEFAULT true' 
+                  : (missingCol.includes('repasse') && !missingCol.includes('Formato')) ? 'real' : 'text';
+                await sqlClient.unsafe(`ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "${missingCol.replace(/"/g, '')}" ${colType};`);
+                // Retry once
+                await db.insert(dbSchema.couriers).values(courierValues).onConflictDoUpdate({
+                  target: dbSchema.couriers.id,
+                  set: courierValues
+                });
+                continue;
+              } catch (retryErr) {
+                console.warn(`[Supabase Database] Falha ao auto-adicionar coluna "${missingCol}" em couriers:`, retryErr);
+              }
+            }
           }
-        });
+          console.warn(`[Supabase Database] Aviso ao sincronizar condutor ${c.id}:`, cErr?.message || cErr);
+        }
       }
     }
 
@@ -1659,6 +1681,24 @@ async function initShardCloudAndMigrate() {
             ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "is_active" boolean DEFAULT true;
             ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasseTaxa" real DEFAULT 9.50;
             ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasse_taxa" real DEFAULT 9.50;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasseFormato" text DEFAULT 'tabela_cep';
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasse_formato" text DEFAULT 'tabela_cep';
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repassePorcentagem" real DEFAULT 80;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "repasse_porcentagem" real DEFAULT 80;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "showDeliveryFee" boolean DEFAULT false;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "show_delivery_fee" boolean DEFAULT false;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "requirePhoto" boolean DEFAULT true;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "require_photo" boolean DEFAULT true;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "allowPeriodHistory" boolean DEFAULT false;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "allow_period_history" boolean DEFAULT false;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "activeSessionToken" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "active_session_token" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "activeDeviceId" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "active_device_id" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "lastLoginAt" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "last_login_at" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "lastLoginDevice" text;
+            ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "last_login_device" text;
           END IF;
 
           -- 4. Se a tabela 'orders' existir, garanta colunas de compatibilidade
@@ -5409,7 +5449,9 @@ app.post("/api/couriers", async (req, res) => {
       isActive: req.body.isActive !== false,
       repasseTaxa: req.body.repasseTaxa !== undefined && req.body.repasseTaxa !== null ? Number(req.body.repasseTaxa) : 9.50,
       repasseFormato: req.body.repasseFormato || 'tabela_cep',
-      repassePorcentagem: req.body.repassePorcentagem !== undefined && req.body.repassePorcentagem !== null ? Number(req.body.repassePorcentagem) : 80
+      repassePorcentagem: req.body.repassePorcentagem !== undefined && req.body.repassePorcentagem !== null ? Number(req.body.repassePorcentagem) : 80,
+      showDeliveryFee: req.body.showDeliveryFee === true,
+      requirePhoto: req.body.requirePhoto !== false
     };
 
     db.couriers.push(newCourier);
@@ -5444,7 +5486,9 @@ app.post("/api/couriers", async (req, res) => {
           is_active: newCourier.isActive !== false,
           repasse_taxa: Number(newCourier.repasseTaxa) || 9.50,
           repasse_formato: newCourier.repasseFormato || 'tabela_cep',
-          repasse_porcentagem: Number(newCourier.repassePorcentagem) || 80
+          repasse_porcentagem: Number(newCourier.repassePorcentagem) || 80,
+          show_delivery_fee: newCourier.showDeliveryFee === true,
+          require_photo: newCourier.requirePhoto !== false
         });
         console.log(`[Supabase REST] Novo condutor ${newCourier.name} (${newCourier.id}) persistido no Supabase!`);
       } catch (sbErr) {
@@ -5489,7 +5533,7 @@ app.put("/api/couriers/:id", async (req, res) => {
     // Sync directly to PostgreSQL Shard Cloud (Drizzle) if active
     if (dbConnection) {
       try {
-        await dbConnection.insert(dbSchema.couriers).values({
+        const courierValues: any = {
           id: updatedCourier.id,
           name: updatedCourier.name,
           avatar: updatedCourier.avatar,
@@ -5505,27 +5549,38 @@ app.put("/api/couriers/:id", async (req, res) => {
           isActive: updatedCourier.isActive !== false,
           repasseTaxa: Number(updatedCourier.repasseTaxa) || 9.50,
           repasseFormato: updatedCourier.repasseFormato || 'tabela_cep',
-          repassePorcentagem: Number(updatedCourier.repassePorcentagem) || 80
-        }).onConflictDoUpdate({
-          target: dbSchema.couriers.id,
-          set: {
-            name: updatedCourier.name,
-            avatar: updatedCourier.avatar,
-            status: updatedCourier.status || "offline",
-            rating: Number(updatedCourier.rating) || 5.0,
-            vehicle: updatedCourier.vehicle || "motorcycle",
-            ordersCompleted: Number(updatedCourier.ordersCompleted) || 0,
-            currentLat: Number(updatedCourier.currentLat) || -23.55052,
-            currentLng: Number(updatedCourier.currentLng) || -46.633308,
-            angle: Number(updatedCourier.angle) || 0,
-            phone: updatedCourier.phone || "",
-            password: updatedCourier.password ? String(updatedCourier.password) : null,
-            isActive: updatedCourier.isActive !== false,
-            repasseTaxa: Number(updatedCourier.repasseTaxa) || 9.50,
-            repasseFormato: updatedCourier.repasseFormato || 'tabela_cep',
-            repassePorcentagem: Number(updatedCourier.repassePorcentagem) || 80
+          repassePorcentagem: Number(updatedCourier.repassePorcentagem) || 80,
+          showDeliveryFee: updatedCourier.showDeliveryFee === true,
+          requirePhoto: updatedCourier.requirePhoto !== false,
+          activeSessionToken: updatedCourier.activeSessionToken || null,
+          activeDeviceId: updatedCourier.activeDeviceId || null,
+          lastLoginAt: updatedCourier.lastLoginAt || null,
+          lastLoginDevice: updatedCourier.lastLoginDevice || null,
+        };
+
+        try {
+          await dbConnection.insert(dbSchema.couriers).values(courierValues).onConflictDoUpdate({
+            target: dbSchema.couriers.id,
+            set: courierValues
+          });
+        } catch (sqlErr: any) {
+          if (sqlClient && sqlErr?.message && /column "([^"]+)" of relation "couriers" does not exist/i.test(sqlErr.message)) {
+            const match = sqlErr.message.match(/column "([^"]+)" of relation "couriers" does not exist/i);
+            const missingCol = match ? match[1] : null;
+            if (missingCol) {
+              const colType = (missingCol === 'requirePhoto' || missingCol === 'require_photo' || missingCol === 'showDeliveryFee' || missingCol === 'show_delivery_fee' || missingCol === 'allowPeriodHistory' || missingCol === 'allow_period_history' || missingCol === 'isActive' || missingCol === 'is_active') 
+                ? 'boolean DEFAULT true' 
+                : (missingCol.includes('repasse') && !missingCol.includes('Formato')) ? 'real' : 'text';
+              await sqlClient.unsafe(`ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "${missingCol.replace(/"/g, '')}" ${colType};`);
+              await dbConnection.insert(dbSchema.couriers).values(courierValues).onConflictDoUpdate({
+                target: dbSchema.couriers.id,
+                set: courierValues
+              });
+            }
+          } else {
+            throw sqlErr;
           }
-        });
+        }
       } catch (sqlErr) {
         console.warn("[PUT /api/couriers/:id] Falha ao sincronizar com PostgreSQL:", sqlErr);
       }
@@ -5550,7 +5605,13 @@ app.put("/api/couriers/:id", async (req, res) => {
           is_active: updatedCourier.isActive !== false,
           repasse_taxa: Number(updatedCourier.repasseTaxa) || 9.50,
           repasse_formato: updatedCourier.repasseFormato || 'tabela_cep',
-          repasse_porcentagem: Number(updatedCourier.repassePorcentagem) || 80
+          repasse_porcentagem: Number(updatedCourier.repassePorcentagem) || 80,
+          show_delivery_fee: updatedCourier.showDeliveryFee === true,
+          require_photo: updatedCourier.requirePhoto !== false,
+          active_session_token: updatedCourier.activeSessionToken || null,
+          active_device_id: updatedCourier.activeDeviceId || null,
+          last_login_at: updatedCourier.lastLoginAt || null,
+          last_login_device: updatedCourier.lastLoginDevice || null
         }).catch(() => {});
       } catch (sbErr) {
         console.warn("[PUT /api/couriers/:id] Falha ao sincronizar com Supabase:", sbErr);
@@ -5742,6 +5803,7 @@ app.post("/api/driver/login", async (req, res) => {
         rating: courier.rating || 5.0,
         showDeliveryFee: courier.showDeliveryFee === true,
         allowPeriodHistory: courier.allowPeriodHistory === true,
+        requirePhoto: courier.requirePhoto !== false,
         activeSessionToken: newSessionToken,
         activeDeviceId: clientDeviceId,
         lastLoginAt: courier.lastLoginAt,
@@ -5757,6 +5819,7 @@ app.post("/api/driver/login", async (req, res) => {
         vehicle: courier.vehicle,
         showDeliveryFee: courier.showDeliveryFee === true,
         allowPeriodHistory: courier.allowPeriodHistory === true,
+        requirePhoto: courier.requirePhoto !== false,
         sessionToken: newSessionToken,
         deviceId: clientDeviceId
       }
