@@ -721,9 +721,17 @@ export default function App() {
           id: verifiedCourier.id,
           name: verifiedCourier.name,
           login: verifiedCourier.phone || verifiedCourier.id,
-          phone: verifiedCourier.phone || currentUser.phone
+          phone: verifiedCourier.phone || currentUser.phone,
+          showDeliveryFee: verifiedCourier.showDeliveryFee === true,
+          allowPeriodHistory: verifiedCourier.allowPeriodHistory === true
         };
-        if (currentUser.id !== verifiedCourier.id || currentUser.name !== verifiedCourier.name || currentUser.login !== verifiedCourier.phone) {
+        if (
+          currentUser.id !== verifiedCourier.id || 
+          currentUser.name !== verifiedCourier.name || 
+          currentUser.login !== verifiedCourier.phone ||
+          currentUser.showDeliveryFee !== (verifiedCourier.showDeliveryFee === true) ||
+          currentUser.allowPeriodHistory !== (verifiedCourier.allowPeriodHistory === true)
+        ) {
           setCurrentUser(updatedUser);
           localStorage.setItem('vinimap_current_operator', JSON.stringify(updatedUser));
         }

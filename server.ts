@@ -5740,6 +5740,8 @@ app.post("/api/driver/login", async (req, res) => {
         status: courier.status || "online",
         ordersCompleted: courier.ordersCompleted || 0,
         rating: courier.rating || 5.0,
+        showDeliveryFee: courier.showDeliveryFee === true,
+        allowPeriodHistory: courier.allowPeriodHistory === true,
         activeSessionToken: newSessionToken,
         activeDeviceId: clientDeviceId,
         lastLoginAt: courier.lastLoginAt,
@@ -5753,6 +5755,8 @@ app.post("/api/driver/login", async (req, res) => {
         permissions: ["driver"],
         phone: courier.phone,
         vehicle: courier.vehicle,
+        showDeliveryFee: courier.showDeliveryFee === true,
+        allowPeriodHistory: courier.allowPeriodHistory === true,
         sessionToken: newSessionToken,
         deviceId: clientDeviceId
       }

@@ -249,6 +249,19 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
     return isStandalone ? null : (couriers.length > 0 ? couriers[0] : null);
   }, [couriers, standaloneCourierId, selectedDriverId, isStandalone]);
 
+  // Check if delivery fee should be displayed on the driver device according to courier registration
+  const canShowDeliveryFee = Boolean(
+    selectedCourier?.showDeliveryFee ??
+    (typeof window !== 'undefined' ? (() => {
+      try {
+        const op = JSON.parse(localStorage.getItem('vinimap_current_operator') || '{}');
+        return op?.showDeliveryFee;
+      } catch (_) {
+        return false;
+      }
+    })() : false)
+  );
+
   // Synchronize default driver selection when couriers load without erratic order-based flipping
   useEffect(() => {
     if (!isStandalone && couriers.length > 0) {
@@ -1325,9 +1338,11 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
                               {order.customerName || order.procurarPor || 'Destinatário'}
                             </h4>
                           </div>
-                          <span className="text-lg sm:text-xl font-black text-emerald-700 shrink-0 pt-1">
-                            R$ {(order.valorEntrega || order.value || 15).toFixed(2)}
-                          </span>
+                          {canShowDeliveryFee && (
+                            <span className="text-lg sm:text-xl font-black text-emerald-700 shrink-0 pt-1">
+                              R$ {(order.valorEntrega || order.value || 15).toFixed(2)}
+                            </span>
+                          )}
                         </div>
 
                         {/* High-Clarity Address Box with Extra Large Font */}
@@ -1913,13 +1928,15 @@ export const DriverDeviceSimulator: React.FC<DriverDeviceSimulatorProps> = ({
             })()}
 
             {/* Additional Key Info Grid (Volume, Delivery Fee, Observations, etc.) */}
-            <div className="grid grid-cols-2 gap-2.5 text-xs sm:text-sm">
-              <div className="bg-slate-50 p-3.5 rounded-2xl border-2 border-slate-300">
-                <span className="text-xs text-slate-500 font-bold uppercase block">Valor Repasse / Taxa:</span>
-                <span className="text-lg sm:text-xl font-black text-emerald-700">
-                  R$ {(expandedOrder.valorEntrega || expandedOrder.value || 15).toFixed(2)}
-                </span>
-              </div>
+            <div className={`grid ${canShowDeliveryFee ? 'grid-cols-2' : 'grid-cols-1'} gap-2.5 text-xs sm:text-sm`}>
+              {canShowDeliveryFee && (
+                <div className="bg-slate-50 p-3.5 rounded-2xl border-2 border-slate-300">
+                  <span className="text-xs text-slate-500 font-bold uppercase block">Valor Repasse / Taxa:</span>
+                  <span className="text-lg sm:text-xl font-black text-emerald-700">
+                    R$ {(expandedOrder.valorEntrega || expandedOrder.value || 15).toFixed(2)}
+                  </span>
+                </div>
+              )}
               <div className="bg-slate-50 p-3.5 rounded-2xl border-2 border-slate-300">
                 <span className="text-xs text-slate-500 font-bold uppercase block">Volumes / Pacote:</span>
                 <span className="text-lg sm:text-xl font-black text-slate-900">

@@ -182,6 +182,8 @@ export interface Operator {
   canConsult?: boolean;
   canAlter?: boolean;
   canCreate?: boolean;
+  showDeliveryFee?: boolean;
+  allowPeriodHistory?: boolean;
 }
 
 // Resilient helper to match client codes across different systems and imports
