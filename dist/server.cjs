@@ -315,7 +315,8 @@ function parseArg(flag) {
 }
 var portArg = parseArg("--port") || parseArg("-p");
 var hostArg = parseArg("--host") || parseArg("-h");
-var PORT = Number(portArg || process.env.PORT) || 3e3;
+var explicitPort = portArg || process.env.APP_PORT || (process.env.PORT && process.env.PORT !== "8080" ? process.env.PORT : void 0);
+var PORT = Number(explicitPort) || 3e3;
 var HOST = hostArg || process.env.HOST || "0.0.0.0";
 var app = (0, import_express.default)();
 var DB_FILE = import_path.default.join(process.cwd(), "src", "db.json");
@@ -7187,14 +7188,15 @@ function autoDeployCreateLocalSnapshot() {
   } catch (e) {
   }
 }
-function autoDeployAlignWithRemote() {
-  (0, import_child_process.execSync)("git reset --hard origin/main", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
-}
 function autoDeployPullRemote() {
   try {
-    autoDeployAlignWithRemote();
+    (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", {
+      cwd: process.cwd(),
+      shell: "/bin/bash",
+      stdio: "ignore"
+    });
   } catch (e) {
-    console.warn("[Auto-Deploy] Aviso no git reset (prosseguindo):", String(e?.message || e).split("\n")[0]);
+    console.warn("[Auto-Deploy] Aviso no git pull (prosseguindo):", String(e?.message || e).split("\n")[0]);
   }
 }
 function autoDeployScheduleRestart(commit, reason) {
