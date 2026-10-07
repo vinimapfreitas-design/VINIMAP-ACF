@@ -634,7 +634,7 @@ try {
   const configPath = import_path.default.join(process.cwd(), "firebase-applet-config.json");
   if (import_fs.default.existsSync(configPath)) {
     if (shouldSkipFirestore()) {
-      console.warn(`[Firestore Database] Cota di\xE1ria gratuita do Firestore esgotada. Inst\xE2ncia do Firestore mantida inativa at\xE9 ${new Date(firestoreQuotaCooldownUntil).toISOString()}. Operando 100% com Supabase e PostgreSQL.`);
+      console.warn(`[Firestore Database] Cota di\xE1ria gratuita do Firestore esgotada. Inst\xE2ncia do Firestore mantida inativa at\xE9 ${new Date(firestoreQuotaCooldownUntil).toISOString()}. Operando 100% com Shard Cloud (PostgreSQL).`);
     } else {
       const config = JSON.parse(import_fs.default.readFileSync(configPath, "utf-8"));
       const firebaseApp = (0, import_app.initializeApp)(config);
@@ -971,7 +971,7 @@ async function saveAllToSupabase(data) {
     }
     return;
   }
-  console.log("[Supabase Database] Salvando altera\xE7\xF5es locais no Supabase PostgreSQL...");
+  console.log("[Shard Cloud PostgreSQL] Salvando altera\xE7\xF5es no PostgreSQL (Shard Cloud)...");
   try {
     if (Array.isArray(data.couriers)) {
       for (const c of data.couriers) {
@@ -1011,7 +1011,7 @@ async function saveAllToSupabase(data) {
             const missingCol = match ? match[1] : null;
             if (missingCol) {
               try {
-                console.log(`[Supabase Database] Auto-criando coluna ausente "${missingCol}" na tabela 'couriers'...`);
+                console.log(`[Shard Cloud PostgreSQL] Auto-criando coluna ausente "${missingCol}" na tabela 'couriers'...`);
                 const colType = missingCol === "requirePhoto" || missingCol === "require_photo" || missingCol === "showDeliveryFee" || missingCol === "show_delivery_fee" || missingCol === "allowPeriodHistory" || missingCol === "allow_period_history" || missingCol === "isActive" || missingCol === "is_active" ? "boolean DEFAULT true" : missingCol.includes("repasse") && !missingCol.includes("Formato") ? "real" : "text";
                 await sqlClient.unsafe(`ALTER TABLE "couriers" ADD COLUMN IF NOT EXISTS "${missingCol.replace(/"/g, "")}" ${colType};`);
                 await db.insert(couriers).values(courierValues).onConflictDoUpdate({
@@ -1020,11 +1020,11 @@ async function saveAllToSupabase(data) {
                 });
                 continue;
               } catch (retryErr) {
-                console.warn(`[Supabase Database] Falha ao auto-adicionar coluna "${missingCol}" em couriers:`, retryErr);
+                console.warn(`[Shard Cloud PostgreSQL] Falha ao auto-adicionar coluna "${missingCol}" em couriers:`, retryErr);
               }
             }
           }
-          console.warn(`[Supabase Database] Aviso ao sincronizar condutor ${c.id}:`, cErr?.message || cErr);
+          console.warn(`[Shard Cloud PostgreSQL] Aviso ao sincronizar condutor ${c.id}:`, cErr?.message || cErr);
         }
       }
     }
@@ -1144,7 +1144,7 @@ async function saveAllToSupabase(data) {
             const missingCol = match ? match[1] : null;
             if (missingCol) {
               try {
-                console.log(`[Supabase Database] Auto-criando coluna ausente "${missingCol}" na tabela 'orders'...`);
+                console.log(`[Shard Cloud PostgreSQL] Auto-criando coluna ausente "${missingCol}" na tabela 'orders'...`);
                 await sqlClient.unsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "${missingCol.replace(/"/g, "")}" text;`);
                 await db.insert(orders).values(orderValues).onConflictDoUpdate({
                   target: orders.id,
@@ -1152,11 +1152,11 @@ async function saveAllToSupabase(data) {
                 });
                 continue;
               } catch (retryErr) {
-                console.warn(`[Supabase Database] Falha ao auto-adicionar coluna "${missingCol}":`, retryErr);
+                console.warn(`[Shard Cloud PostgreSQL] Falha ao auto-adicionar coluna "${missingCol}":`, retryErr);
               }
             }
           }
-          console.warn(`[Supabase Database] Aviso ao sincronizar pedido ${o.id}:`, orderErr?.message || orderErr);
+          console.warn(`[Shard Cloud PostgreSQL] Aviso ao sincronizar pedido ${o.id}:`, orderErr?.message || orderErr);
         }
       }
     }
@@ -1265,13 +1265,13 @@ async function saveAllToSupabase(data) {
         });
       }
     }
-    console.log("[Supabase Database] Altera\xE7\xF5es sincronizadas com o PostgreSQL.");
+    console.log("[Shard Cloud PostgreSQL] Altera\xE7\xF5es sincronizadas com o PostgreSQL (Shard Cloud).");
   } catch (err) {
-    console.error("[Supabase Database] Falha ao salvar altera\xE7\xF5es no PostgreSQL:", err);
+    console.error("[Shard Cloud PostgreSQL] Falha ao salvar altera\xE7\xF5es no PostgreSQL:", err);
     const msg = String(err?.message || err);
     if (msg.includes("ECONNREFUSED") || msg.includes("ETIMEDOUT") || msg.includes("Connection terminated")) {
       console.warn(
-        "\u26A0\uFE0F Erro de conex\xE3o de rede ao persistir no PostgreSQL do Supabase.\nAs altera\xE7\xF5es continuam salvas no local 'db.json' e no Firebase Firestore."
+        "\u26A0\uFE0F Erro de conex\xE3o de rede ao persistir no PostgreSQL (Shard Cloud).\nAs altera\xE7\xF5es continuam salvas no local 'db.json' e no Firebase Firestore."
       );
       dbConnection = null;
     }
@@ -7226,7 +7226,18 @@ var autoDeployLastCheck = null;
 var autoDeployLastUpdate = null;
 var AUTO_DEPLOY_OWNER = process.env.GITHUB_USERNAME || "vinimapfreitas-design";
 var AUTO_DEPLOY_REPO = process.env.GITHUB_REPO && process.env.GITHUB_REPO !== "VINIMAP2026" && process.env.GITHUB_REPO !== "VINIMAPACF" ? process.env.GITHUB_REPO : "VINIMAP-ACF";
+function isGitAvailable() {
+  try {
+    const gitDir = import_path.default.join(process.cwd(), ".git");
+    if (!import_fs.default.existsSync(gitDir)) return false;
+    (0, import_child_process.execSync)("git --version", { stdio: "ignore" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 function autoDeployGitCurrentCommit() {
+  if (!isGitAvailable()) return "";
   try {
     return (0, import_child_process.execSync)("git rev-parse --short HEAD", { cwd: process.cwd(), encoding: "utf-8" }).trim();
   } catch (e) {
@@ -7234,6 +7245,7 @@ function autoDeployGitCurrentCommit() {
   }
 }
 function autoDeployGitRemoteCommit() {
+  if (!isGitAvailable()) return "";
   try {
     (0, import_child_process.execSync)("git fetch origin main --quiet", { cwd: process.cwd(), shell: "/bin/bash", stdio: "ignore" });
     return (0, import_child_process.execSync)("git rev-parse --short origin/main", { cwd: process.cwd(), encoding: "utf-8" }).trim();
@@ -7242,6 +7254,7 @@ function autoDeployGitRemoteCommit() {
   }
 }
 function autoDeployCreateLocalSnapshot() {
+  if (!isGitAvailable()) return;
   try {
     (0, import_child_process.execSync)("git add .", { cwd: process.cwd(), stdio: "ignore" });
     (0, import_child_process.execSync)(`git commit -m "chore: snapshot auto-deploy ${(/* @__PURE__ */ new Date()).toISOString()}" --no-verify`, { cwd: process.cwd(), stdio: "ignore" });
@@ -7250,6 +7263,7 @@ function autoDeployCreateLocalSnapshot() {
   }
 }
 function autoDeployPullRemote() {
+  if (!isGitAvailable()) return;
   try {
     (0, import_child_process.execSync)("git pull origin main --no-rebase -X ours --no-edit --allow-unrelated-histories", {
       cwd: process.cwd(),
@@ -7268,6 +7282,10 @@ function autoDeployScheduleRestart(commit, reason) {
   }, 2e3);
 }
 async function autoDeployRun(reason) {
+  if (!isGitAvailable()) {
+    console.log("[Auto-Deploy] Git n\xE3o dispon\xEDvel no container. Auto-deploy suspenso.");
+    return;
+  }
   if (autoDeployBuilding) {
     console.log(`[Auto-Deploy] [${reason}] Build j\xE1 em andamento, ignorando.`);
     return;
@@ -7296,6 +7314,10 @@ async function autoDeployRun(reason) {
   }
 }
 function startAutoDeployScheduler() {
+  if (!isGitAvailable()) {
+    console.log("[Auto-Deploy] Git n\xE3o detectado neste container. Scheduler inativo.");
+    return;
+  }
   console.log("[Auto-Deploy] Agendador de verificacao ativo (poll a cada 5 min).");
   setInterval(() => {
     if (!autoDeployEnabled || autoDeployBuilding) return;
