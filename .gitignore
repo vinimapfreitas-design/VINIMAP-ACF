@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Logs & temporary files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+src/debug.log
+*.log
+
+# Environment secrets - never push .env to the repository
+.env
+.env.*
+!.env.example
+.firestore_quota_circuit.json
+
+# Build output - rebuilt by GitHub Actions (workflow uses git add -f dist)
+# Kept out of the local commit so the push-code git push does not OOM
+dist
+*.map
+
+# Local runtime database (contains photos/signatures base64 - can be hundreds of MB)
+src/db.json
+src/db.json.bak
+# redeploy postgres
