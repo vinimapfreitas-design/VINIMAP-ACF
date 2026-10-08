@@ -316,7 +316,8 @@ function parseArg(flag) {
 }
 var portArg = parseArg("--port") || parseArg("-p");
 var hostArg = parseArg("--host") || parseArg("-h");
-var explicitPort = portArg || process.env.APP_PORT || (process.env.PORT && process.env.PORT !== "8080" ? process.env.PORT : void 0);
+var isProduction = process.env.NODE_ENV === "production";
+var explicitPort = portArg || process.env.APP_PORT || (isProduction ? process.env.PORT : process.env.PORT && process.env.PORT !== "8080" ? process.env.PORT : void 0);
 var PORT = Number(explicitPort) || 3e3;
 var HOST = hostArg || process.env.HOST || "0.0.0.0";
 var app = (0, import_express.default)();
@@ -380,12 +381,62 @@ app.use(import_express.default.urlencoded({ limit: "50mb", extended: true }));
 function normalizePostgresOrder(o) {
   if (!o) return o;
   const out = { ...o };
-  if (typeof out.deliveryProtocol === "string") {
+  if (!out.customerName && out.customer_name) out.customerName = out.customer_name;
+  if (!out.courierId && out.courier_id) out.courierId = out.courier_id;
+  if (!out.courierName && out.courier_name) out.courierName = out.courier_name;
+  if (!out.codigoCliente && out.codigo_cliente) out.codigoCliente = out.codigo_cliente;
+  if (!out.dataSolicitacao && out.data_solicitacao) out.dataSolicitacao = out.data_solicitacao;
+  if (!out.dataFinalizacao && out.data_finalizacao) out.dataFinalizacao = out.data_finalizacao;
+  if (!out.procurarPor && out.procurar_por) out.procurarPor = out.procurar_por;
+  if (!out.dispositivoCondutor && out.dispositivo_condutor) out.dispositivoCondutor = out.dispositivo_condutor;
+  if (out.valorCondutor === void 0 && out.valor_condutor !== void 0) out.valorCondutor = Number(out.valor_condutor);
+  if (out.valorEntrega === void 0 && out.valor_entrega !== void 0) out.valorEntrega = Number(out.valor_entrega);
+  if (out.valorNotaFiscal === void 0 && out.valor_nota_fiscal !== void 0) out.valorNotaFiscal = Number(out.valor_nota_fiscal);
+  if (out.valorReceber === void 0 && out.valor_receber !== void 0) out.valorReceber = Number(out.valor_receber);
+  if (!out.allocatedDate && out.allocated_date) out.allocatedDate = out.allocated_date;
+  if (!out.cidadeMunicipio && out.cidade_municipio) out.cidadeMunicipio = out.cidade_municipio;
+  if (!out.destinatarioCnpjCpf && out.destinatario_cnpj_cpf) out.destinatarioCnpjCpf = out.destinatario_cnpj_cpf;
+  if (!out.horarioFinal && out.horario_final) out.horarioFinal = out.horario_final;
+  if (!out.horarioInicio && out.horario_inicio) out.horarioInicio = out.horario_inicio;
+  if (!out.documentoEmpresa && out.documento_empresa) out.documentoEmpresa = out.documento_empresa;
+  if (!out.tipoEntrega && out.tipo_entrega) out.tipoEntrega = out.tipo_entrega;
+  if (!out.dataLimite && out.data_limite) out.dataLimite = out.data_limite;
+  if (!out.dataAgendamento && out.data_agendamento) out.dataAgendamento = out.data_agendamento;
+  if (!out.nomeFantasia && out.nome_fantasia) out.nomeFantasia = out.nome_fantasia;
+  if (!out.proofPhotoUrl && out.proof_photo_url) out.proofPhotoUrl = out.proof_photo_url;
+  if (!out.signatureDataUrl && out.signature_data_url) out.signatureDataUrl = out.signature_data_url;
+  if (!out.receiverName && out.receiver_name) out.receiverName = out.receiver_name;
+  if (!out.receiverDoc && out.receiver_doc) out.receiverDoc = out.receiver_doc;
+  if (!out.deliveredAt && out.delivered_at) out.deliveredAt = out.delivered_at;
+  if (!out.statusSincronizado && out.status_sincronizado) out.statusSincronizado = out.status_sincronizado;
+  if (!out.status && out.statusSincronizado) {
+    out.status = out.statusSincronizado;
+  }
+  if (!out.status) {
+    out.status = "pending";
+  }
+  out.statusSincronizado = out.status;
+  out.status_sincronizado = out.status;
+  if (!out.courierName && out.courierId) {
+    const mem = memoryDB || loadDBInternal();
+    if (mem && Array.isArray(mem.couriers)) {
+      const matchC = mem.couriers.find((c) => c.id === out.courierId);
+      if (matchC && matchC.name) {
+        out.courierName = matchC.name;
+        out.allocatedCourierName = matchC.name;
+        out.nomeCondutor = matchC.name;
+      }
+    }
+  }
+  const rawProto = out.deliveryProtocol || out.delivery_protocol;
+  if (typeof rawProto === "string") {
     try {
-      out.deliveryProtocol = JSON.parse(out.deliveryProtocol);
+      out.deliveryProtocol = JSON.parse(rawProto);
     } catch {
       out.deliveryProtocol = null;
     }
+  } else if (rawProto && typeof rawProto === "object") {
+    out.deliveryProtocol = rawProto;
   }
   if (typeof out.history === "string") {
     try {
@@ -393,8 +444,51 @@ function normalizePostgresOrder(o) {
     } catch {
       out.history = [];
     }
+  } else if (!Array.isArray(out.history)) {
+    out.history = [];
+  }
+  if (out.status !== "cancelled") {
+    const hasValidProtocol = out.deliveryProtocol && (out.deliveryProtocol.signedAt || out.deliveryProtocol.signedName || out.deliveryProtocol.photoUrl);
+    const hasDeliveredAt = typeof out.deliveredAt === "string" && out.deliveredAt.trim() !== "" && out.deliveredAt !== "null";
+    const hasProofPhoto = typeof out.proofPhotoUrl === "string" && out.proofPhotoUrl.trim() !== "" && out.proofPhotoUrl !== "null";
+    const hasDeliveredHistory = Array.isArray(out.history) && out.history.some((h) => h.status === "delivered");
+    if (hasValidProtocol || hasDeliveredAt || hasProofPhoto || hasDeliveredHistory) {
+      out.status = "delivered";
+      out.statusSincronizado = "delivered";
+      out.status_sincronizado = "delivered";
+    }
   }
   return out;
+}
+var lastPostgresSyncTime = 0;
+async function refreshMemoryFromPostgres(force = false) {
+  if (!dbConnection) return;
+  const now = Date.now();
+  if (!force && now - lastPostgresSyncTime < 2500) return;
+  lastPostgresSyncTime = now;
+  try {
+    const rawOrders = await dbConnection.select().from(orders);
+    if (rawOrders && rawOrders.length > 0) {
+      const normalized = rawOrders.map(normalizePostgresOrder);
+      if (!memoryDB) memoryDB = loadDBInternal();
+      const memMap = new Map((memoryDB.orders || []).map((o) => [o.id, o]));
+      const mergedOrders = normalized.map((pgOrder) => {
+        const memOrder = memMap.get(pgOrder.id);
+        if (memOrder) {
+          const memTs = Number(memOrder.versionTimestamp || memOrder.updatedAt || 0);
+          const pgTs = Number(pgOrder.versionTimestamp || pgOrder.updatedAt || 0);
+          if (memTs > pgTs + 1e3) {
+            return memOrder;
+          }
+        }
+        return pgOrder;
+      });
+      memoryDB.orders = mergedOrders;
+      saveDB(memoryDB, false);
+    }
+  } catch (err) {
+    console.warn("[Postgres Refresh] Falha ao atualizar dados em mem\xF3ria do PostgreSQL:", err?.message || err);
+  }
 }
 async function syncFromPostgresOnStartup() {
   if (!dbConnection) {
@@ -427,6 +521,21 @@ async function syncFromPostgresOnStartup() {
     localDB.operators = operators2;
     localDB.activities = activities2;
     localDB.financeTransactions = finance;
+    let healedCount = 0;
+    localDB.orders.forEach((o) => {
+      const hasProto = o.deliveryProtocol && (o.deliveryProtocol.signedAt || o.deliveryProtocol.signedName || o.deliveryProtocol.photoUrl);
+      const hasDelivAt = typeof o.deliveredAt === "string" && o.deliveredAt.trim() !== "" && o.deliveredAt !== "null";
+      const historyDeliv = Array.isArray(o.history) && o.history.some((h) => h.status === "delivered");
+      if (o.status !== "delivered" && (hasProto || hasDelivAt || historyDeliv)) {
+        o.status = "delivered";
+        o.statusSincronizado = "delivered";
+        o.status_sincronizado = "delivered";
+        healedCount++;
+      }
+    });
+    if (healedCount > 0) {
+      console.log(`[Postgres Auto-Heal] Sincronizados ${healedCount} pedidos que possu\xEDam dados de entrega gravados mas status divergente.`);
+    }
     memoryDB = sanitizeDB(localDB);
     saveDB(localDB, false);
     console.log(`[Postgres Primary] \u2705 PostgreSQL restaurado: ${orders2.length} pedidos, ${couriers2.length} condutores, ${partners2.length} parceiros, ${hubs2.length} hubs, ${freightRules2.length} regras de frete, ${operators2.length} operadores.`);
@@ -1078,86 +1187,74 @@ async function saveAllToSupabase(data) {
       }
     }
     if (Array.isArray(data.orders)) {
-      for (const o of data.orders) {
-        const orderValues = {
-          id: o.id,
-          customerName: o.customerName,
-          address: o.address,
-          courierId: o.courierId,
-          status: o.status || "pending",
-          value: Number(o.value) || 0,
-          time: o.time,
-          region: o.region,
-          sequencia: o.sequencia ? String(o.sequencia) : null,
-          codigoCliente: o.codigoCliente,
-          dataSolicitacao: o.dataSolicitacao,
-          pedido: o.pedido ? String(o.pedido) : null,
-          procurarPor: o.procurarPor,
-          cep: o.cep,
-          numero: o.numero || null,
-          telefone: o.telefone,
-          detalhe: o.detalhe,
-          email: o.email,
-          complemento: o.complemento,
-          dispositivoCondutor: o.dispositivoCondutor,
-          horarioFinal: o.horarioFinal,
-          documentoEmpresa: o.documentoEmpresa,
-          tipoEntrega: o.tipoEntrega,
-          chamado: o.chamado,
-          danfe: o.danfe,
-          dataLimite: o.dataLimite,
-          nomeFantasia: o.nomeFantasia,
-          horarioInicio: o.horarioInicio,
-          dataAgendamento: o.dataAgendamento,
-          cidadeMunicipio: o.cidadeMunicipio,
-          estado: o.estado,
-          valorNotaFiscal: Number(o.valorNotaFiscal) || 0,
-          valorReceber: Number(o.valorReceber) || 0,
-          valorEntrega: Number(o.valorEntrega) || 0,
-          latitude: o.latitude ? Number(o.latitude) : null,
-          longitude: o.longitude ? Number(o.longitude) : null,
-          destinatarioCnpjCpf: o.destinatarioCnpjCpf,
-          valorCondutor: Number(o.valorCondutor) || 0,
-          isImported: o.isImported ?? false,
-          statusSincronizado: o.statusSincronizado,
-          status_sincronizado: o.status_sincronizado,
-          deliveryProtocol: typeof o.deliveryProtocol === "object" ? JSON.stringify(o.deliveryProtocol) : o.deliveryProtocol || null,
-          proofPhotoUrl: o.proofPhotoUrl || null,
-          signatureDataUrl: o.signatureDataUrl || null,
-          receiverName: o.receiverName || null,
-          receiverDoc: o.receiverDoc || null,
-          deliveredAt: o.deliveredAt || null,
-          version: Number(o.version) || 1,
-          versionTimestamp: Number(o.versionTimestamp) || Date.now(),
-          updatedAt: Number(o.updatedAt) || Date.now(),
-          allocatedDate: o.allocatedDate || null,
-          history: o.history || []
-        };
-        try {
-          await db.insert(orders).values(orderValues).onConflictDoUpdate({
-            target: orders.id,
-            set: orderValues
-          });
-        } catch (orderErr) {
-          if (sqlClient && orderErr?.message && /column "([^"]+)" of relation "orders" does not exist/i.test(orderErr.message)) {
-            const match = orderErr.message.match(/column "([^"]+)" of relation "orders" does not exist/i);
-            const missingCol = match ? match[1] : null;
-            if (missingCol) {
-              try {
-                console.log(`[Shard Cloud PostgreSQL] Auto-criando coluna ausente "${missingCol}" na tabela 'orders'...`);
-                await sqlClient.unsafe(`ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "${missingCol.replace(/"/g, "")}" text;`);
-                await db.insert(orders).values(orderValues).onConflictDoUpdate({
-                  target: orders.id,
-                  set: orderValues
-                });
-                continue;
-              } catch (retryErr) {
-                console.warn(`[Shard Cloud PostgreSQL] Falha ao auto-adicionar coluna "${missingCol}":`, retryErr);
-              }
-            }
+      const allOrderValues = data.orders.map((o) => ({
+        id: o.id,
+        customerName: o.customerName,
+        address: o.address,
+        courierId: o.courierId,
+        courierName: o.courierName || null,
+        status: o.status || "pending",
+        value: Number(o.value) || 0,
+        time: o.time,
+        region: o.region,
+        sequencia: o.sequencia ? String(o.sequencia) : null,
+        codigoCliente: o.codigoCliente,
+        dataSolicitacao: o.dataSolicitacao,
+        pedido: o.pedido ? String(o.pedido) : null,
+        procurarPor: o.procurarPor,
+        cep: o.cep,
+        numero: o.numero || null,
+        telefone: o.telefone,
+        detalhe: o.detalhe,
+        email: o.email,
+        complemento: o.complemento,
+        dispositivoCondutor: o.dispositivoCondutor,
+        horarioFinal: o.horarioFinal,
+        documentoEmpresa: o.documentoEmpresa,
+        tipoEntrega: o.tipoEntrega,
+        chamado: o.chamado,
+        danfe: o.danfe,
+        dataLimite: o.dataLimite,
+        nomeFantasia: o.nomeFantasia,
+        horarioInicio: o.horarioInicio,
+        dataAgendamento: o.dataAgendamento,
+        cidadeMunicipio: o.cidadeMunicipio,
+        estado: o.estado,
+        valorNotaFiscal: Number(o.valorNotaFiscal) || 0,
+        valorReceber: Number(o.valorReceber) || 0,
+        valorEntrega: Number(o.valorEntrega) || 0,
+        latitude: o.latitude ? Number(o.latitude) : null,
+        longitude: o.longitude ? Number(o.longitude) : null,
+        destinatarioCnpjCpf: o.destinatarioCnpjCpf,
+        valorCondutor: Number(o.valorCondutor) || 0,
+        isImported: o.isImported ?? false,
+        statusSincronizado: o.statusSincronizado || o.status || "pending",
+        status_sincronizado: o.status_sincronizado || o.status || "pending",
+        deliveryProtocol: typeof o.deliveryProtocol === "object" ? JSON.stringify(o.deliveryProtocol) : o.deliveryProtocol || null,
+        proofPhotoUrl: o.proofPhotoUrl || null,
+        signatureDataUrl: o.signatureDataUrl || null,
+        receiverName: o.receiverName || null,
+        receiverDoc: o.receiverDoc || null,
+        deliveredAt: o.deliveredAt || null,
+        version: Number(o.version) || 1,
+        versionTimestamp: Number(o.versionTimestamp) || Date.now(),
+        updatedAt: Number(o.updatedAt) || Date.now(),
+        allocatedDate: o.allocatedDate || null,
+        history: o.history || []
+      }));
+      const batchSize = 50;
+      for (let i = 0; i < allOrderValues.length; i += batchSize) {
+        const chunk = allOrderValues.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (orderValues) => {
+          try {
+            await db.insert(orders).values(orderValues).onConflictDoUpdate({
+              target: orders.id,
+              set: orderValues
+            });
+          } catch (orderErr) {
+            console.warn(`[Shard Cloud PostgreSQL] Aviso ao sincronizar pedido ${orderValues.id}:`, orderErr?.message || orderErr);
           }
-          console.warn(`[Shard Cloud PostgreSQL] Aviso ao sincronizar pedido ${o.id}:`, orderErr?.message || orderErr);
-        }
+        }));
       }
     }
     if (Array.isArray(data.activities)) {
@@ -1292,8 +1389,8 @@ async function initShardCloudAndMigrate() {
     console.log("[Postgres Shard Cloud] Inicializando pool de conex\xF5es do PostgreSQL...");
     const isLocal = dbUrl.includes("localhost") || dbUrl.includes("127.0.0.1");
     const tempClient = (0, import_postgres.default)(dbUrl, {
-      max: process.env.VERCEL ? 1 : 5,
-      connect_timeout: 8,
+      max: process.env.VERCEL ? 1 : 10,
+      connect_timeout: 15,
       idle_timeout: 30,
       ssl: isLocal ? false : { rejectUnauthorized: false },
       onnotice: () => {
@@ -1302,7 +1399,7 @@ async function initShardCloudAndMigrate() {
     console.log("[Postgres Shard Cloud] Testando conectividade com o banco de dados na porta 5432...");
     const pingPromise = tempClient`SELECT 1`;
     const timeoutPromise = new Promise(
-      (_, reject) => setTimeout(() => reject(new Error("Timeout de 5 segundos ao conectar ao PostgreSQL Shard")), 5e3)
+      (_, reject) => setTimeout(() => reject(new Error("Timeout de 15 segundos ao conectar ao PostgreSQL Shard")), 15e3)
     );
     await Promise.race([pingPromise, timeoutPromise]);
     console.log("[Postgres Shard Cloud] Conectividade TCP/TLS estabelecida com sucesso!");
@@ -3358,6 +3455,17 @@ function filterOrdersByDateRange(orders2, startDate, endDate, includeActive = fa
       matchCount++;
       return true;
     }
+    if (includeActive) {
+      const transitionDates2 = getOrderCompletionOrTransitionISODates(o);
+      const threeDaysAgo = /* @__PURE__ */ new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const brFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
+      const threeDaysAgoISO = brFormatter.format(threeDaysAgo);
+      if (transitionDates2.some((d) => d >= threeDaysAgoISO)) {
+        matchCount++;
+        return true;
+      }
+    }
     return false;
   });
   return {
@@ -3368,12 +3476,14 @@ function filterOrdersByDateRange(orders2, startDate, endDate, includeActive = fa
 }
 app.get("/api/bootstrap-db", async (req, res) => {
   try {
+    await refreshMemoryFromPostgres();
     const db = loadDB();
     const startDate = req.query.startDate;
     const endDate = req.query.endDate;
     const initialOnly = req.query.initialOnly === "true" || req.query.initial === "true";
     const loadAll = req.query.loadAll === "true" || req.query.all === "true";
     const includeActive = req.query.includeActive !== "false";
+    const totalOrdersCount = (db.orders || []).length;
     if (supabaseServerClient) {
       try {
         const { data: sbCurs, error } = await supabaseServerClient?.from("couriers").select("*") || {};
@@ -3461,14 +3571,17 @@ app.get("/api/bootstrap-db", async (req, res) => {
       }
     });
     const enhancedHourlyStats = Object.values(hourlyCounts);
-    const shouldFilterDate = (initialOnly || !!startDate || !!endDate) && !loadAll;
+    const shouldFilterDate = (!!startDate || !!endDate || initialOnly && totalOrdersCount > 3e3) && !loadAll;
     let targetStart = startDate ? String(startDate) : "";
     let targetEnd = endDate ? String(endDate) : "";
     if ((initialOnly || !startDate) && shouldFilterDate) {
       const now = /* @__PURE__ */ new Date();
       const brFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
       const todayISO = brFormatter.format(now);
-      targetStart = targetStart || todayISO;
+      const yDate = /* @__PURE__ */ new Date();
+      yDate.setDate(yDate.getDate() - 1);
+      const yesterdayISO = brFormatter.format(yDate);
+      targetStart = targetStart || yesterdayISO;
       targetEnd = targetEnd || todayISO;
     }
     let ordersToReturn = db.orders || [];
@@ -3513,7 +3626,8 @@ app.get("/api/orders/deleted-ids", (req, res) => {
   const db = loadDB();
   res.json({ deletedOrderIds: db.deletedOrderIds || [] });
 });
-app.get("/api/orders", (req, res) => {
+app.get("/api/orders", async (req, res) => {
+  await refreshMemoryFromPostgres();
   const db = loadDB();
   const startDate = req.query.startDate;
   const endDate = req.query.endDate;
@@ -3521,7 +3635,7 @@ app.get("/api/orders", (req, res) => {
   const loadAll = req.query.loadAll === "true" || req.query.all === "true";
   const includeActive = req.query.includeActive !== "false";
   const totalOrdersInDb = (db.orders || []).length;
-  if (loadAll || !startDate && !endDate && !initialOnly) {
+  if (loadAll || totalOrdersInDb <= 3e3 || !startDate && !endDate && !initialOnly) {
     return res.json({
       orders: db.orders || [],
       deletedOrderIds: db.deletedOrderIds || [],
@@ -4219,11 +4333,12 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
   db.orders = db.orders.map((o) => {
     if (orderIds.includes(o.id)) {
       const updated = { ...o };
-      logOrderHistory(updated, { courierId, status: "pending" }, db);
+      const preservedStatus = updated.status && updated.status !== "pending" ? updated.status : "pending";
+      logOrderHistory(updated, { courierId, status: preservedStatus }, db);
       sendPushNotification(
         "Novo Pedido Atribu\xEDdo!",
-        `Voc\xEA recebeu o pedido ${o.id} de ${o.customerName}. Status inicial: Pendente Aceite.`,
-        { type: "order_assigned", orderId: o.id, courierId, status: "pending" }
+        `Voc\xEA recebeu o pedido ${o.id} de ${o.customerName}. Status atual: ${preservedStatus === "pending" ? "Pendente" : preservedStatus}.`,
+        { type: "order_assigned", orderId: o.id, courierId, status: preservedStatus }
       );
       const repasse = calculateRepasse(updated, db, courierObj);
       return {
@@ -4233,10 +4348,10 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
         allocatedCourierName: courierObj.name,
         nomeCondutor: courierObj.name,
         dispositivoCondutor: courierObj.phone || "",
-        status: "pending",
-        statusSincronizado: "pending",
-        status_sincronizado: "pending",
-        allocatedDate: getBrasiliaDateStr(),
+        status: preservedStatus,
+        statusSincronizado: preservedStatus,
+        status_sincronizado: preservedStatus,
+        allocatedDate: updated.allocatedDate || getBrasiliaDateStr(),
         valorCondutor: repasse,
         versionTimestamp: Date.now(),
         updatedAt: Date.now(),
@@ -4263,10 +4378,39 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
   };
   db.activities.unshift(newActivity);
   resequenceCourierOrders(courierId, db);
+  if (dbConnection) {
+    try {
+      for (const oId of orderIds) {
+        const orderObj = db.orders.find((x) => x.id === oId);
+        if (orderObj) {
+          const ordValues = {
+            id: orderObj.id,
+            courierId: orderObj.courierId,
+            courierName: courierObj.name || orderObj.courierName || null,
+            status: orderObj.status,
+            statusSincronizado: orderObj.status,
+            status_sincronizado: orderObj.status,
+            allocatedDate: orderObj.allocatedDate,
+            valorCondutor: Number(orderObj.valorCondutor) || 0,
+            dispositivoCondutor: orderObj.dispositivoCondutor || null,
+            version: Number(orderObj.version) || 1,
+            versionTimestamp: Number(orderObj.versionTimestamp) || Date.now(),
+            updatedAt: Number(orderObj.updatedAt) || Date.now(),
+            history: orderObj.history || []
+          };
+          await dbConnection.insert(orders).values(ordValues).onConflictDoUpdate({
+            target: orders.id,
+            set: ordValues
+          });
+        }
+      }
+    } catch (sqlErr) {
+      console.warn("[Postgres Shard Cloud] Erro ao sincronizar bulk-allocate:", sqlErr?.message || sqlErr);
+    }
+  }
   if (supabaseServerClient) {
     try {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-      const allocatedDate = getBrasiliaDateStr();
       for (const oId of orderIds) {
         const orderObj = db.orders.find((o) => o.id === oId);
         if (orderObj) {
@@ -4274,10 +4418,10 @@ app.post("/api/orders/bulk-allocate", async (req, res) => {
             courier_id: courierId,
             driver_name: courierObj.name,
             dispositivo_condutor: courierObj.phone || "",
-            allocated_date: allocatedDate,
+            allocated_date: orderObj.allocatedDate || getBrasiliaDateStr(),
             valor_condutor: Number(orderObj.valorCondutor) || 0,
-            status: "pending",
-            status_sincronizado: "pending",
+            status: orderObj.status,
+            status_sincronizado: orderObj.status,
             updated_at: nowIso,
             history: orderObj.history || []
           }).eq("id", oId);
@@ -4372,6 +4516,36 @@ app.post("/api/orders/bulk-status", async (req, res) => {
   couriersToResequence.forEach((cId) => {
     resequenceCourierOrders(cId, db);
   });
+  if (dbConnection) {
+    try {
+      for (const oId of orderIds) {
+        const orderObj = db.orders.find((x) => x.id === oId);
+        if (orderObj) {
+          const ordValues = {
+            id: orderObj.id,
+            status: orderObj.status,
+            statusSincronizado: orderObj.status,
+            status_sincronizado: orderObj.status,
+            deliveredAt: orderObj.deliveredAt || null,
+            deliveryProtocol: typeof orderObj.deliveryProtocol === "object" ? JSON.stringify(orderObj.deliveryProtocol) : orderObj.deliveryProtocol || null,
+            courierId: orderObj.courierId || null,
+            courierName: orderObj.courierName || null,
+            version: Number(orderObj.version) || 1,
+            versionTimestamp: Number(orderObj.versionTimestamp) || Date.now(),
+            updatedAt: Number(orderObj.updatedAt) || Date.now(),
+            statusUpdatedAt: Number(orderObj.statusUpdatedAt) || Date.now(),
+            history: orderObj.history || []
+          };
+          await dbConnection.insert(orders).values(ordValues).onConflictDoUpdate({
+            target: orders.id,
+            set: ordValues
+          });
+        }
+      }
+    } catch (sqlErr) {
+      console.warn("[Postgres Shard Cloud] Erro ao sincronizar bulk-status:", sqlErr?.message || sqlErr);
+    }
+  }
   if (supabaseServerClient) {
     try {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
@@ -7220,7 +7394,7 @@ app.post("/api/github/webhooks/test-connection", (req, res) => {
     activity: newActivity
   });
 });
-var autoDeployEnabled = true;
+var autoDeployEnabled = process.env.AUTO_DEPLOY_ENABLED === "true" || process.env.NODE_ENV !== "production" && !process.env.VERCEL;
 var autoDeployBuilding = false;
 var autoDeployLastCheck = null;
 var autoDeployLastUpdate = null;
@@ -7275,7 +7449,11 @@ function autoDeployPullRemote() {
   }
 }
 function autoDeployScheduleRestart(commit, reason) {
-  console.log(`[Auto-Deploy] [${reason}] Build OK. Reiniciando servidor para aplicar ${commit} em ~2s...`);
+  console.log(`[Auto-Deploy] [${reason}] Build OK. Nova vers\xE3o pronta para ${commit}.`);
+  if (process.env.NODE_ENV === "production") {
+    console.log("[Auto-Deploy] Em produ\xE7\xE3o, o servidor continuar\xE1 ativo sem for\xE7ar encerramento com process.exit.");
+    return;
+  }
   setTimeout(() => {
     console.log("[Auto-Deploy] Reiniciando servidor para aplicar a nova vers\xE3o...");
     process.exit(0);
