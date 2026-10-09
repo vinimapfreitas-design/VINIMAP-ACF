@@ -476,7 +476,7 @@ export default function CouriersList({
                   )}
                   <div className="flex items-center gap-1">
                     {(() => {
-                      const periodDelivered = (orders || []).filter((o: any) => o.courierId === c.id && o.status === 'delivered').length;
+                      const periodDelivered = (orders || []).filter((o: any) => o && o.courierId === c.id && o.status === 'delivered').length;
                       return (
                         <span 
                           className="text-[9px] text-slate-500 font-semibold"

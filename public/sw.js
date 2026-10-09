@@ -1,7 +1,5 @@
-const CACHE_NAME = 'vinimap-driver-v2';
+const CACHE_NAME = 'vinimap-fleet-v3';
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/icon.svg'
 ];
@@ -20,6 +18,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME) {
+            console.log('[SW] Removendo cache obsoleto:', cache);
             return caches.delete(cache);
           }
         })
@@ -30,6 +29,37 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+
+  // Nunca interceptar chamadas de API
+  if (url.pathname.startsWith('/api')) {
+    return;
+  }
+
+  // Para navegações de página (HTML principal), SEMPRE tentar a rede primeiro
+  // para garantir que a versão mais recente do deploy seja carregada
+  if (event.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            });
+          }
+          return networkResponse;
+        })
+        .catch(() => {
+          return caches.match(event.request).then((cached) => {
+            return cached || caches.match('/index.html');
+          });
+        })
+    );
+    return;
+  }
+
+  // Para assets estáticos (/assets/*.js, css, imagens)
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
@@ -41,10 +71,11 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          return cachedResponse || caches.match('/index.html');
-        });
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        // NUNCA retorne index.html para arquivos de script ou estilo!
+        return new Response('Asset not available offline', { status: 404, statusText: 'Not Found' });
       })
   );
 });

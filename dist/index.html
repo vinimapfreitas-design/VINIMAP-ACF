@@ -99,23 +99,54 @@
     <link rel="shortcut icon" href="/api/branding/logo" />
     <link rel="apple-touch-icon" href="/api/branding/logo" />
     <script>
+      // Service Worker registration with instant update check
       if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then(reg => {
             console.log('[PWA] Service Worker registrado com sucesso:', reg.scope);
+            try {
+              reg.update();
+            } catch (_) {}
           }).catch(err => {
             console.warn('[PWA] Não foi possível registrar o Service Worker:', err);
           });
         });
       }
+
+      // Previne tela em branco por falha de carregamento de bundle após deploy recente (mismatched chunk)
+      window.addEventListener('error', function(e) {
+        var msg = (e && e.message) ? String(e.message) : '';
+        if (
+          msg.indexOf('Failed to fetch dynamically imported module') !== -1 ||
+          msg.indexOf('Importing a module script failed') !== -1 ||
+          msg.indexOf('Unexpected token \'<\'') !== -1
+        ) {
+          var reloaded = sessionStorage.getItem('vinimap_auto_reload_after_deploy');
+          if (!reloaded) {
+            sessionStorage.setItem('vinimap_auto_reload_after_deploy', '1');
+            console.warn('[ViniMap Auto-Recovery] Detectada divergência de versão após deploy. Limpando cache e recarregando...');
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+              });
+            }
+            if ('caches' in window) {
+              caches.keys().then(function(names) {
+                names.forEach(function(n) { caches.delete(n); });
+              });
+            }
+            window.location.reload();
+          }
+        }
+      });
     </script>
-    <script type="module" crossorigin src="/assets/index-CkEYsFN9.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/vendor-core-DaKXj0SL.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-charts-Cep-2IYl.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-pdf-Bg4Y4xqe.js">
+    <script type="module" crossorigin src="/assets/index-Cv522nNW.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-core-Bf5ctvSD.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-charts-CD4I1p_s.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-pdf-BjsBtBjs.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-xlsx-BBWTpfDg.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-firebase-CAApPGWO.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-Bfl2FZV6.css">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-firebase-Ccxlsyoc.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-o01grR7j.css">
   </head>
   <body>
     <div id="root"></div>

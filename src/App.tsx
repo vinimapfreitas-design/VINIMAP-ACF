@@ -4627,7 +4627,7 @@ const markOrderAsDeleted = (orderId: string) => {
               {adminSubTab === 'env_config' && (
                 <EnvironmentConfigTab />
               )}
-              {adminSubTab === 'shardcloud_sql_gen' && (
+              {(adminSubTab === 'shardcloud_sql_gen' || adminSubTab === 'shardcloud' || adminSubTab === 'shardcloud_sql') && (
                 <ShardCloudSqlGenTab />
               )}
             </div>
@@ -4924,6 +4924,9 @@ const markOrderAsDeleted = (orderId: string) => {
 
       case 'sql_export':
       case 'shardcloud_sql':
+      case 'shardcloud_sql_gen':
+      case 'shardcloud':
+      case 'shard_cloud':
         return (
           <ShardCloudSqlGenTab />
         );

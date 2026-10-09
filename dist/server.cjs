@@ -7918,6 +7918,9 @@ async function startServer() {
       }
     }));
     app.get("*", (req, res) => {
+      if (req.path.startsWith("/assets/") || req.path.startsWith("/api/")) {
+        return res.status(404).json({ error: "Asset or endpoint not found", path: req.path });
+      }
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");

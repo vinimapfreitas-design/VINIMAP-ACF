@@ -125,12 +125,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   // PAINEL ADM Submenu 3: SISTEMA E INTEGRAÇÃO
-  // Items: Integração Intelipost, Firebase, Conf App, Backup, Exportar SQL, GitHub (+ Sync Logs)
+  // Items: Integração Intelipost, Firebase, Conf App, Backup, Exportar SQL, Shard Cloud, GitHub (+ Sync Logs)
   const sistemaSubmenuItems = [
     { id: 'integracoes', label: 'Integração Intelipost', icon: Zap },
     { id: 'firebase_control', label: 'Firebase', icon: Database },
     { id: 'environment', label: 'Conf App', icon: Settings },
     { id: 'backup', label: 'Backup', icon: RotateCcw },
+    { id: 'shardcloud_sql_gen', label: 'Shard Cloud (SQL & DB)', icon: Database },
     { id: 'sql_export', label: 'Exportar SQL', icon: FileCode },
     { id: 'github', label: 'GitHub', icon: Code },
     { id: 'sync_logs', label: 'Logs de Sincronização', icon: List }

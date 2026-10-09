@@ -601,16 +601,20 @@ VITE_FIREBASE_FIRESTORE_DATABASE_ID=${fbDbId}
                         </span>
                       </div>
 
-                      {shardTestResult.tables && (
+                      {shardTestResult.tables && typeof shardTestResult.tables === 'object' && (
                         <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono mt-2">
-                          {Object.entries(shardTestResult.tables).map(([tbl, info]: [string, any]) => (
-                            <div key={tbl} className="flex items-center justify-between p-1.5 bg-white border border-slate-200 rounded">
-                              <span className="text-slate-600">{tbl}</span>
-                              <span className={info.ok ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
-                                {info.ok ? `${info.count ?? 0} reg.` : 'ausente'}
-                              </span>
-                            </div>
-                          ))}
+                          {Object.entries(shardTestResult.tables).map(([tbl, info]: [string, any]) => {
+                            const isOk = Boolean(info && typeof info === 'object' && info.ok);
+                            const count = info && typeof info === 'object' ? (info.count ?? 0) : 0;
+                            return (
+                              <div key={tbl} className="flex items-center justify-between p-1.5 bg-white border border-slate-200 rounded">
+                                <span className="text-slate-600 truncate mr-1">{tbl}</span>
+                                <span className={isOk ? 'text-emerald-600 font-bold shrink-0' : 'text-rose-600 font-bold shrink-0'}>
+                                  {isOk ? `${count} reg.` : 'ausente'}
+                                </span>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
