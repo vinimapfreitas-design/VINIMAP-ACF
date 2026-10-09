@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788395550095,
+      "tag": "0000_huge_solo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788395551000,
+      "tag": "0001_add_order_numero_and_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788395552000,
+      "tag": "0002_add_courier_require_photo",
+      "breakpoints": true
+    }
+  ]
+}
