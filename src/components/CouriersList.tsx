@@ -475,9 +475,17 @@ export default function CouriersList({
                     </span>
                   )}
                   <div className="flex items-center gap-1">
-                    <span className="text-[9px] text-slate-400 font-semibold">
-                      {c.ordersCompleted} entregas
-                    </span>
+                    {(() => {
+                      const periodDelivered = (orders || []).filter((o: any) => o.courierId === c.id && o.status === 'delivered').length;
+                      return (
+                        <span 
+                          className="text-[9px] text-slate-500 font-semibold"
+                          title={`Dia atual/período: ${periodDelivered} entregas | Histórico total cadastral: ${c.ordersCompleted || 0} entregas`}
+                        >
+                          {periodDelivered} {periodDelivered === 1 ? 'entrega hoje' : 'entregas hoje'}
+                        </span>
+                      );
+                    })()}
                     {onOpenShareForCourier && (
                       <button
                         type="button"

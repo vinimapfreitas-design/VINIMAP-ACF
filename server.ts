@@ -4612,21 +4612,18 @@ app.get("/api/bootstrap-db", async (req, res) => {
 
     const enhancedHourlyStats = Object.values(hourlyCounts);
 
-    const shouldFilterDate = (!!startDate || !!endDate || (initialOnly && totalOrdersCount > 3000)) && !loadAll;
+    const shouldFilterDate = (!!startDate || !!endDate || initialOnly) && !loadAll;
     
     // Determine effective filter range for initial load
     let targetStart = startDate ? String(startDate) : '';
     let targetEnd = endDate ? String(endDate) : '';
 
     if ((initialOnly || !startDate) && shouldFilterDate) {
-      // Default to yesterday + today in Brasilia time for high-volume database to preserve overnight transitions
+      // Default to today in Brasilia time for lean initial payload (with includeActive preserving overnight transitions)
       const now = new Date();
       const brFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
       const todayISO = brFormatter.format(now); // YYYY-MM-DD
-      const yDate = new Date();
-      yDate.setDate(yDate.getDate() - 1);
-      const yesterdayISO = brFormatter.format(yDate);
-      targetStart = targetStart || yesterdayISO;
+      targetStart = targetStart || todayISO;
       targetEnd = targetEnd || todayISO;
     }
 
@@ -4689,7 +4686,7 @@ app.get("/api/orders", async (req, res) => {
 
   const totalOrdersInDb = (db.orders || []).length;
 
-  if (loadAll || totalOrdersInDb <= 3000 || (!startDate && !endDate && !initialOnly)) {
+  if (loadAll || (!startDate && !endDate && !initialOnly)) {
     return res.json({
       orders: db.orders || [],
       deletedOrderIds: db.deletedOrderIds || [],

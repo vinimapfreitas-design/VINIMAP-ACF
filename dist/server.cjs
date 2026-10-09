@@ -136,7 +136,17 @@ var orders = (0, import_pg_core.pgTable)("orders", {
   allocatedDate: (0, import_pg_core.text)("allocatedDate"),
   isDeleted: (0, import_pg_core.boolean)("isDeleted"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  statusIdx: (0, import_pg_core.index)("idx_orders_status").on(t.status),
+  courierIdIdx: (0, import_pg_core.index)("idx_orders_courier_id").on(t.courierId),
+  regionIdx: (0, import_pg_core.index)("idx_orders_region").on(t.region),
+  cepIdx: (0, import_pg_core.index)("idx_orders_cep").on(t.cep),
+  pedidoIdx: (0, import_pg_core.index)("idx_orders_pedido").on(t.pedido),
+  codigoClienteIdx: (0, import_pg_core.index)("idx_orders_codigo_cliente").on(t.codigoCliente),
+  allocatedDateIdx: (0, import_pg_core.index)("idx_orders_allocated_date").on(t.allocatedDate),
+  timeIdx: (0, import_pg_core.index)("idx_orders_time").on(t.time),
+  isDeletedIdx: (0, import_pg_core.index)("idx_orders_is_deleted").on(t.isDeleted)
+}));
 var couriers = (0, import_pg_core.pgTable)("couriers", {
   id: (0, import_pg_core.text)("id").primaryKey(),
   name: (0, import_pg_core.text)("name"),
@@ -164,7 +174,11 @@ var couriers = (0, import_pg_core.pgTable)("couriers", {
   lastLoginAt: (0, import_pg_core.text)("lastLoginAt"),
   lastLoginDevice: (0, import_pg_core.text)("lastLoginDevice"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  statusIdx: (0, import_pg_core.index)("idx_couriers_status").on(t.status),
+  phoneIdx: (0, import_pg_core.index)("idx_couriers_phone").on(t.phone),
+  isActiveIdx: (0, import_pg_core.index)("idx_couriers_is_active").on(t.isActive)
+}));
 var activities = (0, import_pg_core.pgTable)("activities", {
   id: (0, import_pg_core.text)("id").primaryKey(),
   type: (0, import_pg_core.text)("type"),
@@ -176,7 +190,9 @@ var activities = (0, import_pg_core.pgTable)("activities", {
   user: (0, import_pg_core.text)("user"),
   details: (0, import_pg_core.text)("details"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  orderIdIdx: (0, import_pg_core.index)("idx_activities_order_id").on(t.orderId)
+}));
 var hubs = (0, import_pg_core.pgTable)("hubs", {
   id: (0, import_pg_core.text)("id").primaryKey(),
   name: (0, import_pg_core.text)("name"),
@@ -214,7 +230,10 @@ var partners = (0, import_pg_core.pgTable)("partners", {
   isActive: (0, import_pg_core.boolean)("isActive"),
   cepSpreadsheetUrl: (0, import_pg_core.text)("cepSpreadsheetUrl"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  codigoClienteIdx: (0, import_pg_core.index)("idx_partners_codigo_cliente").on(t.codigoCliente),
+  cnpjCpfIdx: (0, import_pg_core.index)("idx_partners_cnpj_cpf").on(t.cnpjCpf)
+}));
 var partnerClients = partners;
 var financeTransactions = (0, import_pg_core.pgTable)("finance_transactions", {
   id: (0, import_pg_core.text)("id").primaryKey(),
@@ -231,7 +250,11 @@ var financeTransactions = (0, import_pg_core.pgTable)("finance_transactions", {
   installmentNumber: (0, import_pg_core.integer)("installmentNumber"),
   totalInstallments: (0, import_pg_core.integer)("totalInstallments"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  dateIdx: (0, import_pg_core.index)("idx_finance_transactions_date").on(t.date),
+  typeIdx: (0, import_pg_core.index)("idx_finance_transactions_type").on(t.type),
+  statusIdx: (0, import_pg_core.index)("idx_finance_transactions_status").on(t.status)
+}));
 var freightRules = (0, import_pg_core.pgTable)("freight_rules", {
   id: (0, import_pg_core.text)("id").primaryKey(),
   partnerId: (0, import_pg_core.text)("partnerId"),
@@ -249,7 +272,10 @@ var freightRules = (0, import_pg_core.pgTable)("freight_rules", {
   lastUpdated: (0, import_pg_core.text)("lastUpdated"),
   lastUpdatedBy: (0, import_pg_core.text)("lastUpdatedBy"),
   created_at: (0, import_pg_core.timestamp)("created_at").defaultNow()
-});
+}, (t) => ({
+  partnerIdIdx: (0, import_pg_core.index)("idx_freight_rules_partner_id").on(t.partnerId),
+  codigoClienteIdx: (0, import_pg_core.index)("idx_freight_rules_codigo_cliente").on(t.codigoCliente)
+}));
 var freightImportHistory = (0, import_pg_core.pgTable)("freight_import_history", {
   id: (0, import_pg_core.text)("id").primaryKey(),
   partnerId: (0, import_pg_core.text)("partnerId"),
@@ -1514,6 +1540,139 @@ async function initShardCloudAndMigrate() {
     } catch (columnErr) {
       console.warn("[Postgres Shard Cloud] Aviso n\xE3o-bloqueante na verifica\xE7\xE3o de colunas:", columnErr?.message || columnErr);
     }
+    try {
+      console.log("[Postgres Shard Cloud] Verificando e garantindo \xEDndices de alta performance nas tabelas...");
+      await tempClient`
+        DO $$
+        BEGIN
+          -- 1. Índices para a tabela 'orders'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_status" ON "orders" ("status");
+            CREATE INDEX IF NOT EXISTS "idx_orders_region" ON "orders" ("region");
+            CREATE INDEX IF NOT EXISTS "idx_orders_cep" ON "orders" ("cep");
+            CREATE INDEX IF NOT EXISTS "idx_orders_time" ON "orders" ("time");
+
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'courierId') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_courier_id_camel" ON "orders" ("courierId");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'courier_id') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_courier_id_snake" ON "orders" ("courier_id");
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'codigoCliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_codigo_cliente_camel" ON "orders" ("codigoCliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'codigo_cliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_codigo_cliente_snake" ON "orders" ("codigo_cliente");
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'allocatedDate') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_allocated_date_camel" ON "orders" ("allocatedDate");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'allocated_date') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_allocated_date_snake" ON "orders" ("allocated_date");
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'pedido') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_pedido" ON "orders" ("pedido");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'danfe') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_danfe" ON "orders" ("danfe");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'chamado') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_chamado" ON "orders" ("chamado");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'cliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_cliente" ON "orders" ("cliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'customerName') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_customer_name" ON "orders" ("customerName");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'isDeleted') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_is_deleted_camel" ON "orders" ("isDeleted");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'is_deleted') THEN
+              CREATE INDEX IF NOT EXISTS "idx_orders_is_deleted_snake" ON "orders" ("is_deleted");
+            END IF;
+          END IF;
+
+          -- 2. Índices para 'couriers'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'couriers') THEN
+            CREATE INDEX IF NOT EXISTS "idx_couriers_status" ON "couriers" ("status");
+            CREATE INDEX IF NOT EXISTS "idx_couriers_phone" ON "couriers" ("phone");
+            CREATE INDEX IF NOT EXISTS "idx_couriers_email" ON "couriers" ("email");
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'couriers' AND column_name = 'isActive') THEN
+              CREATE INDEX IF NOT EXISTS "idx_couriers_is_active_camel" ON "couriers" ("isActive");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'couriers' AND column_name = 'is_active') THEN
+              CREATE INDEX IF NOT EXISTS "idx_couriers_is_active_snake" ON "couriers" ("is_active");
+            END IF;
+          END IF;
+
+          -- 3. Índices para 'partner_clients' / 'partners'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partners') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'codigoCliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_partners_cod_cli_camel" ON "partners" ("codigoCliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'codigo_cliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_partners_cod_cli_snake" ON "partners" ("codigo_cliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'cnpjCpf') THEN
+              CREATE INDEX IF NOT EXISTS "idx_partners_cnpj_cpf_camel" ON "partners" ("cnpjCpf");
+            END IF;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partner_clients') THEN
+            IF (SELECT table_type FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partner_clients') = 'BASE TABLE' THEN
+              IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partner_clients' AND column_name = 'codigo_cliente') THEN
+                CREATE INDEX IF NOT EXISTS "idx_partner_clients_cod_cli" ON "partner_clients" ("codigo_cliente");
+              END IF;
+            END IF;
+          END IF;
+
+          -- 4. Índices para 'freight_rules'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'freight_rules') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'partnerId') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_partner_id_camel" ON "freight_rules" ("partnerId");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'partner_id') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_partner_id_snake" ON "freight_rules" ("partner_id");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'codigoCliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_cod_cli_camel" ON "freight_rules" ("codigoCliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'codigo_cliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_cod_cli_snake" ON "freight_rules" ("codigo_cliente");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cepMin') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cepMax') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_ceps_camel" ON "freight_rules" ("cepMin", "cepMax");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cep_min') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cep_max') THEN
+              CREATE INDEX IF NOT EXISTS "idx_freight_rules_ceps_snake" ON "freight_rules" ("cep_min", "cep_max");
+            END IF;
+          END IF;
+
+          -- 5. Índices para 'finance_transactions'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'finance_transactions') THEN
+            CREATE INDEX IF NOT EXISTS "idx_finance_date" ON "finance_transactions" ("date");
+            CREATE INDEX IF NOT EXISTS "idx_finance_type" ON "finance_transactions" ("type");
+            CREATE INDEX IF NOT EXISTS "idx_finance_status" ON "finance_transactions" ("status");
+          END IF;
+
+          -- 6. Índices para 'activities'
+          IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'activities') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'activities' AND column_name = 'orderId') THEN
+              CREATE INDEX IF NOT EXISTS "idx_activities_order_id_camel" ON "activities" ("orderId");
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'activities' AND column_name = 'order_id') THEN
+              CREATE INDEX IF NOT EXISTS "idx_activities_order_id_snake" ON "activities" ("order_id");
+            END IF;
+          END IF;
+        END $$;
+      `;
+      console.log("[Postgres Shard Cloud] \xCDndices de alta performance conferidos e ativos com sucesso!");
+    } catch (idxErr) {
+      console.warn("[Postgres Shard Cloud] Aviso n\xE3o-bloqueante na verifica\xE7\xE3o de \xEDndices:", idxErr?.message || idxErr);
+    }
   } catch (err) {
     console.warn(
       "\u26A0\uFE0F A conex\xE3o direta com o PostgreSQL (Shard Cloud) falhou ou expirou (CONNECT_TIMEOUT).\n" + (err?.message || err) + "\nO sistema continuar\xE1 funcionando normalmente com persist\xEAncia local e sincroniza\xE7\xE3o Firebase/Firestore como fallback!"
@@ -1647,14 +1806,14 @@ async function saveCollectionToFirestore(collectionName, list, cleanObsolete = f
     let batch = (0, import_firestore.writeBatch)(firestore);
     let batchCount = 0;
     let batchBytes = 0;
-    for (let index = 0; index < list.length; index++) {
+    for (let index2 = 0; index2 < list.length; index2++) {
       if (shouldSkipFirestore()) return;
-      const item = list[index];
+      const item = list[index2];
       if (!item) continue;
-      let id = item.id || item.hour || item.region || `item-${index}`;
+      let id = item.id || item.hour || item.region || `item-${index2}`;
       id = String(id).trim().replace(/:/g, "-");
       if (!id || id === "undefined" || id === "null") {
-        id = `item-${index}`;
+        id = `item-${index2}`;
       }
       const docRef = (0, import_firestore.doc)(colRef, id);
       const cleanedItem = cleanForFirestore(item);
@@ -3135,6 +3294,21 @@ app.get(["/api/shardcloud/test-connection", "/api/supabase/test-connection"], as
       }
     }
     results.latencyMs = Date.now() - startTime;
+    if (sqlClient) {
+      try {
+        const indexRows = await sqlClient.unsafe(`
+          SELECT tablename, indexname 
+          FROM pg_indexes 
+          WHERE schemaname = 'public' 
+          ORDER BY tablename, indexname
+        `);
+        results.indexes = indexRows;
+        results.indexCount = indexRows.length;
+      } catch (idxErr) {
+        results.indexes = [];
+        results.indexCount = 0;
+      }
+    }
     if (successCount === tableList.length) {
       results.overallStatus = "healthy";
       results.message = "Todas as 8 tabelas do PostgreSQL no Shard Cloud est\xE3o operando com 100% de integridade!";
@@ -3151,6 +3325,155 @@ app.get(["/api/shardcloud/test-connection", "/api/supabase/test-connection"], as
     results.overallStatus = "error";
     results.message = `Erro ao testar conex\xE3o com o Shard Cloud: ${err.message}`;
     return res.status(500).json(results);
+  }
+});
+app.get("/api/shardcloud/indexes", async (req, res) => {
+  if (!sqlClient && !dbConnection) {
+    return res.json({ success: false, message: "PostgreSQL n\xE3o conectado", indexes: [] });
+  }
+  try {
+    const indexes = await sqlClient.unsafe(`
+      SELECT tablename, indexname, indexdef 
+      FROM pg_indexes 
+      WHERE schemaname = 'public' 
+      ORDER BY tablename, indexname;
+    `);
+    return res.json({ success: true, count: indexes.length, indexes });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.post("/api/shardcloud/apply-indexes", async (req, res) => {
+  if (!sqlClient && !dbConnection) {
+    return res.status(400).json({ success: false, message: "PostgreSQL n\xE3o conectado" });
+  }
+  try {
+    await sqlClient.unsafe(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+          CREATE INDEX IF NOT EXISTS "idx_orders_status" ON "orders" ("status");
+          CREATE INDEX IF NOT EXISTS "idx_orders_region" ON "orders" ("region");
+          CREATE INDEX IF NOT EXISTS "idx_orders_cep" ON "orders" ("cep");
+          CREATE INDEX IF NOT EXISTS "idx_orders_time" ON "orders" ("time");
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'courierId') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_courier_id_camel" ON "orders" ("courierId");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'courier_id') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_courier_id_snake" ON "orders" ("courier_id");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'codigoCliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_codigo_cliente_camel" ON "orders" ("codigoCliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'codigo_cliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_codigo_cliente_snake" ON "orders" ("codigo_cliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'allocatedDate') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_allocated_date_camel" ON "orders" ("allocatedDate");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'allocated_date') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_allocated_date_snake" ON "orders" ("allocated_date");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'pedido') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_pedido" ON "orders" ("pedido");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'danfe') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_danfe" ON "orders" ("danfe");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'chamado') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_chamado" ON "orders" ("chamado");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'cliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_cliente" ON "orders" ("cliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'customerName') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_customer_name" ON "orders" ("customerName");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'isDeleted') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_is_deleted_camel" ON "orders" ("isDeleted");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'is_deleted') THEN
+            CREATE INDEX IF NOT EXISTS "idx_orders_is_deleted_snake" ON "orders" ("is_deleted");
+          END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'couriers') THEN
+          CREATE INDEX IF NOT EXISTS "idx_couriers_status" ON "couriers" ("status");
+          CREATE INDEX IF NOT EXISTS "idx_couriers_phone" ON "couriers" ("phone");
+          CREATE INDEX IF NOT EXISTS "idx_couriers_email" ON "couriers" ("email");
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'couriers' AND column_name = 'isActive') THEN
+            CREATE INDEX IF NOT EXISTS "idx_couriers_is_active_camel" ON "couriers" ("isActive");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'couriers' AND column_name = 'is_active') THEN
+            CREATE INDEX IF NOT EXISTS "idx_couriers_is_active_snake" ON "couriers" ("is_active");
+          END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partners') THEN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'codigoCliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_partners_cod_cli_camel" ON "partners" ("codigoCliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'codigo_cliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_partners_cod_cli_snake" ON "partners" ("codigo_cliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partners' AND column_name = 'cnpjCpf') THEN
+            CREATE INDEX IF NOT EXISTS "idx_partners_cnpj_cpf_camel" ON "partners" ("cnpjCpf");
+          END IF;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partner_clients') THEN
+          IF (SELECT table_type FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'partner_clients') = 'BASE TABLE' THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'partner_clients' AND column_name = 'codigo_cliente') THEN
+              CREATE INDEX IF NOT EXISTS "idx_partner_clients_cod_cli" ON "partner_clients" ("codigo_cliente");
+            END IF;
+          END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'freight_rules') THEN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'partnerId') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_partner_id_camel" ON "freight_rules" ("partnerId");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'partner_id') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_partner_id_snake" ON "freight_rules" ("partner_id");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'codigoCliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_cod_cli_camel" ON "freight_rules" ("codigoCliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'codigo_cliente') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_cod_cli_snake" ON "freight_rules" ("codigo_cliente");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cepMin') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cepMax') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_ceps_camel" ON "freight_rules" ("cepMin", "cepMax");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cep_min') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'freight_rules' AND column_name = 'cep_max') THEN
+            CREATE INDEX IF NOT EXISTS "idx_freight_rules_ceps_snake" ON "freight_rules" ("cep_min", "cep_max");
+          END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'finance_transactions') THEN
+          CREATE INDEX IF NOT EXISTS "idx_finance_date" ON "finance_transactions" ("date");
+          CREATE INDEX IF NOT EXISTS "idx_finance_type" ON "finance_transactions" ("type");
+          CREATE INDEX IF NOT EXISTS "idx_finance_status" ON "finance_transactions" ("status");
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'activities') THEN
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'activities' AND column_name = 'orderId') THEN
+            CREATE INDEX IF NOT EXISTS "idx_activities_order_id_camel" ON "activities" ("orderId");
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'activities' AND column_name = 'order_id') THEN
+            CREATE INDEX IF NOT EXISTS "idx_activities_order_id_snake" ON "activities" ("order_id");
+          END IF;
+        END IF;
+      END $$;
+    `);
+    const updatedIndexes = await sqlClient.unsafe(`
+      SELECT tablename, indexname 
+      FROM pg_indexes 
+      WHERE schemaname = 'public' 
+      ORDER BY tablename, indexname;
+    `);
+    return res.json({ success: true, message: "\xCDndices criados/otimizados com sucesso!", count: updatedIndexes.length, indexes: updatedIndexes });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 app.get("/api/db-status", (req, res) => {
@@ -3571,17 +3894,14 @@ app.get("/api/bootstrap-db", async (req, res) => {
       }
     });
     const enhancedHourlyStats = Object.values(hourlyCounts);
-    const shouldFilterDate = (!!startDate || !!endDate || initialOnly && totalOrdersCount > 3e3) && !loadAll;
+    const shouldFilterDate = (!!startDate || !!endDate || initialOnly) && !loadAll;
     let targetStart = startDate ? String(startDate) : "";
     let targetEnd = endDate ? String(endDate) : "";
     if ((initialOnly || !startDate) && shouldFilterDate) {
       const now = /* @__PURE__ */ new Date();
       const brFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" });
       const todayISO = brFormatter.format(now);
-      const yDate = /* @__PURE__ */ new Date();
-      yDate.setDate(yDate.getDate() - 1);
-      const yesterdayISO = brFormatter.format(yDate);
-      targetStart = targetStart || yesterdayISO;
+      targetStart = targetStart || todayISO;
       targetEnd = targetEnd || todayISO;
     }
     let ordersToReturn = db.orders || [];
@@ -3635,7 +3955,7 @@ app.get("/api/orders", async (req, res) => {
   const loadAll = req.query.loadAll === "true" || req.query.all === "true";
   const includeActive = req.query.includeActive !== "false";
   const totalOrdersInDb = (db.orders || []).length;
-  if (loadAll || totalOrdersInDb <= 3e3 || !startDate && !endDate && !initialOnly) {
+  if (loadAll || !startDate && !endDate && !initialOnly) {
     return res.json({
       orders: db.orders || [],
       deletedOrderIds: db.deletedOrderIds || [],
@@ -3774,9 +4094,9 @@ function findOrderIndex(orders2, idOrPedido) {
 app.put("/api/orders/:id", async (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = findOrderIndex(db.orders, id);
-  if (index !== -1) {
-    const existingOrder = db.orders[index];
+  const index2 = findOrderIndex(db.orders, id);
+  if (index2 !== -1) {
+    const existingOrder = db.orders[index2];
     if (req.body.status !== void 0) {
       req.body.statusSincronizado = req.body.status;
       req.body.status_sincronizado = req.body.status;
@@ -3875,7 +4195,7 @@ app.put("/api/orders/:id", async (req, res) => {
     if (updatedOrder.valorEntrega) {
       updatedOrder.value = updatedOrder.valorEntrega;
     }
-    db.orders[index] = updatedOrder;
+    db.orders[index2] = updatedOrder;
     if (req.body.status && req.body.status !== existingOrder.status) {
       const statusLabels = {
         pending: "Pendente",
@@ -3917,119 +4237,145 @@ app.put("/api/orders/:id", async (req, res) => {
       reconcileCourierStatus(updatedOrder.courierId, db);
     }
     const actualOrderId = updatedOrder.id || id;
+    const orderValues = {
+      id: actualOrderId,
+      customerName: updatedOrder.customerName || updatedOrder.cliente || "Cliente",
+      address: updatedOrder.address || "",
+      value: typeof updatedOrder.value === "number" ? updatedOrder.value : 0,
+      status: updatedOrder.status || "pending",
+      statusText: updatedOrder.statusText || "",
+      dataSolicitacao: updatedOrder.dataSolicitacao || "",
+      dataFinalizacao: updatedOrder.dataFinalizacao || "",
+      region: updatedOrder.region || "",
+      courierId: updatedOrder.courierId || null,
+      courierName: updatedOrder.courierName || null,
+      volume: updatedOrder.volume || null,
+      weight: typeof updatedOrder.weight === "number" ? updatedOrder.weight : null,
+      observacao: updatedOrder.observacao || null,
+      sequencia: updatedOrder.sequencia || null,
+      bairro: updatedOrder.bairro || null,
+      cidade: updatedOrder.cidade || null,
+      uf: updatedOrder.uf || null,
+      cep: updatedOrder.cep || null,
+      latitude: typeof updatedOrder.latitude === "number" ? updatedOrder.latitude : null,
+      longitude: typeof updatedOrder.longitude === "number" ? updatedOrder.longitude : null,
+      tipoServico: updatedOrder.tipoServico || null,
+      comprovanteUrl: updatedOrder.comprovanteUrl || null,
+      notaFiscal: updatedOrder.notaFiscal || null,
+      valorCondutor: typeof updatedOrder.valorCondutor === "number" ? updatedOrder.valorCondutor : null,
+      history: updatedOrder.history || [],
+      time: updatedOrder.time || null,
+      codigoCliente: updatedOrder.codigoCliente || null,
+      createdAt: updatedOrder.createdAt || null,
+      pedido: updatedOrder.pedido || null,
+      procurarPor: updatedOrder.procurarPor || null,
+      telefone: updatedOrder.telefone || null,
+      detalhe: updatedOrder.detalhe || null,
+      email: updatedOrder.email || null,
+      numero: updatedOrder.numero || null,
+      complemento: updatedOrder.complemento || null,
+      dispositivoCondutor: updatedOrder.dispositivoCondutor || null,
+      horarioFinal: updatedOrder.horarioFinal || null,
+      documentoEmpresa: updatedOrder.documentoEmpresa || null,
+      tipoEntrega: updatedOrder.tipoEntrega || null,
+      prioridade: updatedOrder.prioridade || null,
+      chamado: updatedOrder.chamado || null,
+      danfe: updatedOrder.danfe || null,
+      dataLimite: updatedOrder.dataLimite || null,
+      nomeFantasia: updatedOrder.nomeFantasia || null,
+      horarioInicio: updatedOrder.horarioInicio || null,
+      dataAgendamento: updatedOrder.dataAgendamento || null,
+      cidadeMunicipio: updatedOrder.cidadeMunicipio || null,
+      estado: updatedOrder.estado || null,
+      valorNotaFiscal: typeof updatedOrder.valorNotaFiscal === "number" ? updatedOrder.valorNotaFiscal : null,
+      valorReceber: typeof updatedOrder.valorReceber === "number" ? updatedOrder.valorReceber : null,
+      valorEntrega: typeof updatedOrder.valorEntrega === "number" ? updatedOrder.valorEntrega : null,
+      destinatarioCnpjCpf: updatedOrder.destinatarioCnpjCpf || null,
+      isImported: !!updatedOrder.isImported,
+      statusSincronizado: updatedOrder.statusSincronizado || null,
+      status_sincronizado: updatedOrder.status_sincronizado || null,
+      deliveryProtocol: updatedOrder.deliveryProtocol ? JSON.stringify(updatedOrder.deliveryProtocol) : null,
+      proofPhotoUrl: updatedOrder.proofPhotoUrl || null,
+      signatureDataUrl: updatedOrder.signatureDataUrl || null,
+      receiverName: updatedOrder.receiverName || null,
+      receiverDoc: updatedOrder.receiverDoc || null,
+      deliveredAt: updatedOrder.deliveredAt || null,
+      version: updatedOrder.version || 1,
+      versionTimestamp: updatedOrder.versionTimestamp || Date.now(),
+      updatedAt: updatedOrder.updatedAt || Date.now(),
+      allocatedDate: updatedOrder.allocatedDate || null,
+      isDeleted: !!updatedOrder.isDeleted
+    };
+    const cloudSyncTasks = [];
     if (dbConnection) {
-      try {
-        const orderValues = {
-          id: actualOrderId,
-          customerName: updatedOrder.customerName || null,
-          address: updatedOrder.address || null,
-          courierId: updatedOrder.courierId || null,
-          status: updatedOrder.status || "pending",
-          value: Number(updatedOrder.value) || 0,
-          time: updatedOrder.time || null,
-          region: updatedOrder.region || null,
-          sequencia: updatedOrder.sequencia ? String(updatedOrder.sequencia) : null,
-          codigoCliente: updatedOrder.codigoCliente || null,
-          dataSolicitacao: updatedOrder.dataSolicitacao || null,
-          pedido: updatedOrder.pedido ? String(updatedOrder.pedido) : null,
-          procurarPor: updatedOrder.procurarPor || null,
-          cep: updatedOrder.cep || null,
-          numero: updatedOrder.numero || null,
-          telefone: updatedOrder.telefone || null,
-          detalhe: updatedOrder.detalhe || null,
-          email: updatedOrder.email || null,
-          complemento: updatedOrder.complemento || null,
-          dispositivoCondutor: updatedOrder.dispositivoCondutor || null,
-          horarioFinal: updatedOrder.horarioFinal || null,
-          documentoEmpresa: updatedOrder.documentoEmpresa || null,
-          tipoEntrega: updatedOrder.tipoEntrega || null,
-          chamado: updatedOrder.chamado || null,
-          danfe: updatedOrder.danfe || null,
-          dataLimite: updatedOrder.dataLimite || null,
-          nomeFantasia: updatedOrder.nomeFantasia || null,
-          horarioInicio: updatedOrder.horarioInicio || null,
-          dataAgendamento: updatedOrder.dataAgendamento || null,
-          cidadeMunicipio: updatedOrder.cidadeMunicipio || null,
-          estado: updatedOrder.estado || null,
-          valorNotaFiscal: Number(updatedOrder.valorNotaFiscal) || 0,
-          valorReceber: Number(updatedOrder.valorReceber) || 0,
-          valorEntrega: Number(updatedOrder.valorEntrega) || 0,
-          latitude: updatedOrder.latitude ? Number(updatedOrder.latitude) : null,
-          longitude: updatedOrder.longitude ? Number(updatedOrder.longitude) : null,
-          destinatarioCnpjCpf: updatedOrder.destinatarioCnpjCpf || null,
-          valorCondutor: Number(updatedOrder.valorCondutor) || 0,
-          isImported: updatedOrder.isImported ?? false,
-          statusSincronizado: updatedOrder.status,
-          status_sincronizado: updatedOrder.status,
-          deliveryProtocol: typeof updatedOrder.deliveryProtocol === "object" ? JSON.stringify(updatedOrder.deliveryProtocol) : updatedOrder.deliveryProtocol || null,
-          proofPhotoUrl: updatedOrder.proofPhotoUrl || null,
-          signatureDataUrl: updatedOrder.signatureDataUrl || null,
-          receiverName: updatedOrder.receiverName || null,
-          receiverDoc: updatedOrder.receiverDoc || null,
-          deliveredAt: updatedOrder.deliveredAt || null,
-          version: Number(updatedOrder.version) || 1,
-          versionTimestamp: Number(updatedOrder.versionTimestamp) || Date.now(),
-          updatedAt: Number(updatedOrder.updatedAt) || Date.now(),
-          allocatedDate: updatedOrder.allocatedDate || null,
-          history: updatedOrder.history || []
-        };
-        await dbConnection.insert(orders).values(orderValues).onConflictDoUpdate({
-          target: orders.id,
-          set: orderValues
-        });
-      } catch (sqlErr) {
-        console.warn(`[Postgres Shard Cloud] Erro ao sincronizar pedido ${actualOrderId}:`, sqlErr?.message || sqlErr);
-      }
+      const pgPromise = (async () => {
+        try {
+          await dbConnection.insert(orders).values(orderValues).onConflictDoUpdate({
+            target: orders.id,
+            set: orderValues
+          });
+        } catch (sqlErr) {
+          console.warn(`[Postgres Shard Cloud] Erro ao sincronizar pedido ${actualOrderId}:`, sqlErr?.message || sqlErr);
+        }
+      })();
+      cloudSyncTasks.push(pgPromise);
     }
     if (firestore && !shouldSkipFirestore()) {
-      try {
-        const orderDocRef = (0, import_firestore.doc)(firestore, "orders", actualOrderId);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Firestore")), 3e3));
-        await Promise.race([
-          (0, import_firestore.setDoc)(orderDocRef, cleanForFirestore(updatedOrder), { merge: true }),
-          timeoutPromise
-        ]);
-        console.log(`[Firestore] Pedido ${actualOrderId} sincronizado diretamente em tempo real.`);
-      } catch (fsErr) {
-        if (!checkFirestoreQuotaExhaustion(fsErr)) {
-          console.error(`[Firestore] Erro ao sincronizar pedido ${actualOrderId} diretamente:`, fsErr);
+      const fsPromise = (async () => {
+        try {
+          const orderDocRef = (0, import_firestore.doc)(firestore, "orders", actualOrderId);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Firestore")), 2e3));
+          await Promise.race([
+            (0, import_firestore.setDoc)(orderDocRef, cleanForFirestore(updatedOrder), { merge: true }),
+            timeoutPromise
+          ]);
+        } catch (fsErr) {
+          if (!checkFirestoreQuotaExhaustion(fsErr)) {
+            console.error(`[Firestore] Erro ao sincronizar pedido ${actualOrderId} diretamente:`, fsErr);
+          }
         }
-      }
+      })();
+      cloudSyncTasks.push(fsPromise);
     }
     if (supabaseServerClient) {
-      try {
-        const mapped = {
-          id: actualOrderId,
-          status: updatedOrder.status,
-          status_sincronizado: updatedOrder.status,
-          courier_id: updatedOrder.courierId || null,
-          valor_condutor: Number(updatedOrder.valorCondutor) || 0,
-          allocated_date: updatedOrder.allocatedDate || (updatedOrder.courierId ? getBrasiliaDateStr() : null),
-          sequencia: updatedOrder.sequencia ? String(updatedOrder.sequencia) : null,
-          updated_at: new Date(updatedOrder.updatedAt || Date.now()).toISOString(),
-          delivery_protocol: typeof updatedOrder.deliveryProtocol === "object" ? JSON.stringify(updatedOrder.deliveryProtocol) : updatedOrder.deliveryProtocol || null,
-          history: updatedOrder.history || []
-        };
-        if (updatedOrder.customerName) mapped.customer_name = updatedOrder.customerName;
-        if (updatedOrder.address) mapped.address = updatedOrder.address;
-        if (updatedOrder.cep) mapped.cep = updatedOrder.cep;
-        if (updatedOrder.dataSolicitacao) mapped.data_solicitacao = updatedOrder.dataSolicitacao;
-        if (updatedOrder.pedido) mapped.pedido = updatedOrder.pedido;
-        if (updatedOrder.valorNotaFiscal !== void 0) mapped.valor_nota_fiscal = Number(updatedOrder.valorNotaFiscal) || 0;
-        if (updatedOrder.valorReceber !== void 0) mapped.valor_receber = Number(updatedOrder.valorReceber) || 0;
-        if (updatedOrder.valorEntrega !== void 0) mapped.valor_entrega = Number(updatedOrder.valorEntrega) || 0;
-        if (updatedOrder.version !== void 0) mapped.version = updatedOrder.version;
-        if (updatedOrder.versionTimestamp !== void 0) mapped.version_timestamp = updatedOrder.versionTimestamp;
-        supabaseServerClient.from("orders").update(mapped).eq("id", actualOrderId).catch(() => {
-        });
-      } catch (sbErr) {
-        console.debug(`[Supabase] Erro ao atualizar pedido ${actualOrderId}:`, sbErr);
-      }
+      const sbPromise = (async () => {
+        try {
+          const mapped = {
+            id: actualOrderId,
+            status: updatedOrder.status,
+            status_sincronizado: updatedOrder.status,
+            courier_id: updatedOrder.courierId || null,
+            valor_condutor: Number(updatedOrder.valorCondutor) || 0,
+            allocated_date: updatedOrder.allocatedDate || (updatedOrder.courierId ? getBrasiliaDateStr() : null),
+            sequencia: updatedOrder.sequencia ? String(updatedOrder.sequencia) : null,
+            updated_at: new Date(updatedOrder.updatedAt || Date.now()).toISOString(),
+            delivery_protocol: typeof updatedOrder.deliveryProtocol === "object" ? JSON.stringify(updatedOrder.deliveryProtocol) : updatedOrder.deliveryProtocol || null,
+            history: updatedOrder.history || []
+          };
+          if (updatedOrder.customerName) mapped.customer_name = updatedOrder.customerName;
+          if (updatedOrder.address) mapped.address = updatedOrder.address;
+          if (updatedOrder.cep) mapped.cep = updatedOrder.cep;
+          if (updatedOrder.dataSolicitacao) mapped.data_solicitacao = updatedOrder.dataSolicitacao;
+          if (updatedOrder.pedido) mapped.pedido = updatedOrder.pedido;
+          if (updatedOrder.valorNotaFiscal !== void 0) mapped.valor_nota_fiscal = Number(updatedOrder.valorNotaFiscal) || 0;
+          if (updatedOrder.valorReceber !== void 0) mapped.valor_receber = Number(updatedOrder.valorReceber) || 0;
+          if (updatedOrder.valorEntrega !== void 0) mapped.valor_entrega = Number(updatedOrder.valorEntrega) || 0;
+          if (updatedOrder.version !== void 0) mapped.version = updatedOrder.version;
+          if (updatedOrder.versionTimestamp !== void 0) mapped.version_timestamp = updatedOrder.versionTimestamp;
+          await supabaseServerClient.from("orders").update(mapped).eq("id", actualOrderId);
+        } catch (sbErr) {
+          console.debug(`[Supabase] Erro ao atualizar pedido ${actualOrderId}:`, sbErr);
+        }
+      })();
+      cloudSyncTasks.push(sbPromise);
+    }
+    if (cloudSyncTasks.length > 0) {
+      await Promise.allSettled(cloudSyncTasks);
     }
     saveDB(db, false, false, "orders").catch(() => {
     });
-    broadcastServerEvent("order_updated", { order: db.orders[index], orderId: actualOrderId });
-    res.json(db.orders[index]);
+    broadcastServerEvent("order_updated", { order: db.orders[index2], orderId: actualOrderId });
+    res.json(db.orders[index2]);
   } else {
     const nowTimestamp = Date.now();
     const effectiveTimestamp = Number(req.body.versionTimestamp || req.body.updatedAt || nowTimestamp);
@@ -4179,7 +4525,7 @@ app.put("/api/orders/:id", async (req, res) => {
 app.delete("/api/orders/:id", async (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = findOrderIndex(db.orders, id);
+  const index2 = findOrderIndex(db.orders, id);
   if (!Array.isArray(db.deletedOrderIds)) db.deletedOrderIds = [];
   const registerTombstones = (targetId, orderObj) => {
     const rawClean = String(targetId).trim();
@@ -4199,10 +4545,10 @@ app.delete("/api/orders/:id", async (req, res) => {
       }
     });
   };
-  if (index !== -1) {
-    const deletedOrder = db.orders[index];
+  if (index2 !== -1) {
+    const deletedOrder = db.orders[index2];
     const actualId = deletedOrder.id || id;
-    db.orders.splice(index, 1);
+    db.orders.splice(index2, 1);
     registerTombstones(actualId, deletedOrder);
     registerTombstones(id, deletedOrder);
     const now = /* @__PURE__ */ new Date();
@@ -4518,30 +4864,27 @@ app.post("/api/orders/bulk-status", async (req, res) => {
   });
   if (dbConnection) {
     try {
-      for (const oId of orderIds) {
-        const orderObj = db.orders.find((x) => x.id === oId);
-        if (orderObj) {
-          const ordValues = {
-            id: orderObj.id,
-            status: orderObj.status,
-            statusSincronizado: orderObj.status,
-            status_sincronizado: orderObj.status,
-            deliveredAt: orderObj.deliveredAt || null,
-            deliveryProtocol: typeof orderObj.deliveryProtocol === "object" ? JSON.stringify(orderObj.deliveryProtocol) : orderObj.deliveryProtocol || null,
-            courierId: orderObj.courierId || null,
-            courierName: orderObj.courierName || null,
-            version: Number(orderObj.version) || 1,
-            versionTimestamp: Number(orderObj.versionTimestamp) || Date.now(),
-            updatedAt: Number(orderObj.updatedAt) || Date.now(),
-            statusUpdatedAt: Number(orderObj.statusUpdatedAt) || Date.now(),
-            history: orderObj.history || []
-          };
-          await dbConnection.insert(orders).values(ordValues).onConflictDoUpdate({
-            target: orders.id,
-            set: ordValues
-          });
-        }
-      }
+      const ordersToUpdate = orderIds.map((oId) => db.orders.find((x) => x.id === oId)).filter(Boolean).map((orderObj) => ({
+        id: orderObj.id,
+        status: orderObj.status,
+        statusSincronizado: orderObj.status,
+        status_sincronizado: orderObj.status,
+        deliveredAt: orderObj.deliveredAt || null,
+        deliveryProtocol: typeof orderObj.deliveryProtocol === "object" ? JSON.stringify(orderObj.deliveryProtocol) : orderObj.deliveryProtocol || null,
+        courierId: orderObj.courierId || null,
+        courierName: orderObj.courierName || null,
+        version: Number(orderObj.version) || 1,
+        versionTimestamp: Number(orderObj.versionTimestamp) || Date.now(),
+        updatedAt: Number(orderObj.updatedAt) || Date.now(),
+        statusUpdatedAt: Number(orderObj.statusUpdatedAt) || Date.now(),
+        history: orderObj.history || []
+      }));
+      await Promise.all(ordersToUpdate.map(
+        (ordValues) => dbConnection.insert(orders).values(ordValues).onConflictDoUpdate({
+          target: orders.id,
+          set: ordValues
+        })
+      ));
     } catch (sqlErr) {
       console.warn("[Postgres Shard Cloud] Erro ao sincronizar bulk-status:", sqlErr?.message || sqlErr);
     }
@@ -4549,26 +4892,27 @@ app.post("/api/orders/bulk-status", async (req, res) => {
   if (supabaseServerClient) {
     try {
       const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-      for (const oId of orderIds) {
-        const orderObj = db.orders.find((o) => o.id === oId);
-        if (orderObj) {
-          const mappedUpdate = {
-            status,
-            status_sincronizado: status,
-            updated_at: nowIso,
-            history: orderObj.history || []
-          };
-          if (orderObj.deliveredAt) mappedUpdate.delivered_at = orderObj.deliveredAt;
-          if (orderObj.deliveryProtocol) mappedUpdate.delivery_protocol = orderObj.deliveryProtocol;
-          if (status === "cancelled" || !orderObj.courierId) mappedUpdate.courier_id = null;
-          await supabaseServerClient.from("orders").update(mappedUpdate).eq("id", oId);
-        }
-      }
+      const mappedList = orderIds.map((oId) => db.orders.find((o) => o.id === oId)).filter(Boolean).map((orderObj) => {
+        const mappedUpdate = {
+          id: orderObj.id,
+          status,
+          status_sincronizado: status,
+          updated_at: nowIso,
+          history: orderObj.history || []
+        };
+        if (orderObj.deliveredAt) mappedUpdate.delivered_at = orderObj.deliveredAt;
+        if (orderObj.deliveryProtocol) mappedUpdate.delivery_protocol = orderObj.deliveryProtocol;
+        if (status === "cancelled" || !orderObj.courierId) mappedUpdate.courier_id = null;
+        return mappedUpdate;
+      });
+      Promise.all(mappedList.map((m) => supabaseServerClient.from("orders").update(m).eq("id", m.id))).catch(() => {
+      });
     } catch (sbErr) {
       console.error("[Supabase] Erro ao sincronizar bulk-status:", sbErr);
     }
   }
-  await saveDB(db, true, false, "orders");
+  saveDB(db, false, false, "orders").catch(() => {
+  });
   broadcastServerEvent("orders_bulk_updated", { orderIds, status });
   res.json({ success: true, activity: newActivity, orders: db.orders, couriers: db.couriers });
 });
@@ -4769,11 +5113,11 @@ app.post("/api/couriers", async (req, res) => {
 app.put("/api/couriers/:id", async (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = db.couriers.findIndex((c) => c.id === id);
-  if (index !== -1) {
-    const prevStatus = db.couriers[index].status;
-    db.couriers[index] = { ...db.couriers[index], ...req.body };
-    const updatedCourier = db.couriers[index];
+  const index2 = db.couriers.findIndex((c) => c.id === id);
+  if (index2 !== -1) {
+    const prevStatus = db.couriers[index2].status;
+    db.couriers[index2] = { ...db.couriers[index2], ...req.body };
+    const updatedCourier = db.couriers[index2];
     if (req.body.status && req.body.status !== prevStatus) {
       const now = /* @__PURE__ */ new Date();
       const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -4881,9 +5225,9 @@ app.put("/api/couriers/:id", async (req, res) => {
 app.delete("/api/couriers/:id", async (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = db.couriers.findIndex((c) => c.id === id);
-  if (index !== -1) {
-    const courier = db.couriers[index];
+  const index2 = db.couriers.findIndex((c) => c.id === id);
+  if (index2 !== -1) {
+    const courier = db.couriers[index2];
     const cleanPhone = courier.phone ? String(courier.phone).replace(/\D/g, "") : "";
     const hasOrders = Array.isArray(db.orders) && db.orders.some(
       (o) => o && (o.courierId === id || o.courier_id === id || cleanPhone && o.dispositivoCondutor && String(o.dispositivoCondutor).replace(/\D/g, "") === cleanPhone)
@@ -4894,7 +5238,7 @@ app.delete("/api/couriers/:id", async (req, res) => {
         canInactivate: true
       });
     }
-    db.couriers.splice(index, 1);
+    db.couriers.splice(index2, 1);
     const now = /* @__PURE__ */ new Date();
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const newActivity = {
@@ -5149,11 +5493,11 @@ app.post("/api/partner-clients", (req, res) => {
 app.put("/api/partner-clients/:id", (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = db.partnerClients.findIndex((p) => p.id === id);
-  if (index !== -1) {
-    db.partnerClients[index] = { ...db.partnerClients[index], ...req.body };
+  const index2 = db.partnerClients.findIndex((p) => p.id === id);
+  if (index2 !== -1) {
+    db.partnerClients[index2] = { ...db.partnerClients[index2], ...req.body };
     saveDB(db);
-    res.json(db.partnerClients[index]);
+    res.json(db.partnerClients[index2]);
   } else {
     res.status(404).json({ error: "Cliente parceiro n\xE3o encontrado" });
   }
@@ -5161,10 +5505,10 @@ app.put("/api/partner-clients/:id", (req, res) => {
 app.delete("/api/partner-clients/:id", async (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = db.partnerClients.findIndex((p) => p.id === id);
-  if (index !== -1) {
-    const partner = db.partnerClients[index];
-    db.partnerClients.splice(index, 1);
+  const index2 = db.partnerClients.findIndex((p) => p.id === id);
+  if (index2 !== -1) {
+    const partner = db.partnerClients[index2];
+    db.partnerClients.splice(index2, 1);
     if (db.freightRules) {
       db.freightRules = db.freightRules.filter((r) => r.partnerId !== id);
     }
@@ -5453,10 +5797,10 @@ app.delete("/api/operators/:id", async (req, res) => {
   if (id === "ope-1" || id === "1") {
     return res.status(400).json({ error: "O Administrador Geral n\xE3o pode ser exclu\xEDdo." });
   }
-  const index = db.operators.findIndex((o) => o.id === id);
-  if (index !== -1) {
-    const name = db.operators[index].name;
-    db.operators.splice(index, 1);
+  const index2 = db.operators.findIndex((o) => o.id === id);
+  if (index2 !== -1) {
+    const name = db.operators[index2].name;
+    db.operators.splice(index2, 1);
     const now = /* @__PURE__ */ new Date();
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const newActivity = {
@@ -5499,20 +5843,20 @@ app.delete("/api/operators/:id", async (req, res) => {
 app.put("/api/operators/:id", (req, res) => {
   const db = loadDB();
   const id = req.params.id;
-  const index = db.operators.findIndex((o) => o.id === id);
-  if (index !== -1) {
+  const index2 = db.operators.findIndex((o) => o.id === id);
+  if (index2 !== -1) {
     const { name, login, password, permissions, canConsult, canAlter, canCreate } = req.body;
     const trimmedLogin = login ? login.trim().toLowerCase() : void 0;
     const trimmedName = name ? name.trim() : void 0;
     const trimmedPassword = password ? password.trim() : void 0;
-    if (trimmedLogin && trimmedLogin !== db.operators[index].login) {
+    if (trimmedLogin && trimmedLogin !== db.operators[index2].login) {
       const exists = db.operators.find((o) => o.login.toLowerCase() === trimmedLogin && o.id !== id);
       if (exists) {
         return res.status(400).json({ error: "J\xE1 existe um operador cadastrado com este login" });
       }
     }
-    db.operators[index] = {
-      ...db.operators[index],
+    db.operators[index2] = {
+      ...db.operators[index2],
       ...trimmedName && { name: trimmedName },
       ...trimmedLogin && { login: trimmedLogin },
       ...trimmedPassword && { password: trimmedPassword },
@@ -5527,13 +5871,13 @@ app.put("/api/operators/:id", (req, res) => {
       id: `act-${Date.now()}`,
       time: timeStr,
       type: "courier_status",
-      message: `Cadastro de Operador Atualizado: ${trimmedName || db.operators[index].name}`,
+      message: `Cadastro de Operador Atualizado: ${trimmedName || db.operators[index2].name}`,
       details: `Os dados e permiss\xF5es foram redefinidos via Painel Admin`
     };
     if (!db.activities) db.activities = [];
     db.activities.unshift(newActivity);
     saveDB(db, true, true);
-    res.json(db.operators[index]);
+    res.json(db.operators[index2]);
   } else {
     res.status(404).json({ error: "Operador n\xE3o encontrado" });
   }
@@ -5855,15 +6199,15 @@ app.put("/api/hubs/:id", (req, res) => {
   const db = loadDB();
   if (!db.hubs) db.hubs = [];
   const id = req.params.id;
-  const index = db.hubs.findIndex((h) => h.id === id);
-  if (index === -1) {
+  const index2 = db.hubs.findIndex((h) => h.id === id);
+  if (index2 === -1) {
     return res.status(404).json({ error: "HUB n\xE3o encontrado" });
   }
   const { name, address, cep, latitude, longitude, isActive, endRoutingType, manualEndAddress } = req.body;
   if (isActive === true) {
     db.hubs.forEach((h) => h.isActive = false);
   }
-  const original = db.hubs[index];
+  const original = db.hubs[index2];
   const updatedHub = {
     ...original,
     name: name !== void 0 ? name : original.name,
@@ -5875,7 +6219,7 @@ app.put("/api/hubs/:id", (req, res) => {
     endRoutingType: endRoutingType !== void 0 ? endRoutingType : original.endRoutingType,
     manualEndAddress: manualEndAddress !== void 0 ? manualEndAddress : original.manualEndAddress
   };
-  db.hubs[index] = updatedHub;
+  db.hubs[index2] = updatedHub;
   const activeCount = db.hubs.filter((h) => h.isActive).length;
   if (activeCount === 0 && db.hubs.length > 0) {
     db.hubs[0].isActive = true;
@@ -5898,12 +6242,12 @@ app.delete("/api/hubs/:id", async (req, res) => {
   const db = loadDB();
   if (!db.hubs) db.hubs = [];
   const id = req.params.id;
-  const index = db.hubs.findIndex((h) => h.id === id);
-  if (index === -1) {
+  const index2 = db.hubs.findIndex((h) => h.id === id);
+  if (index2 === -1) {
     return res.status(404).json({ error: "HUB n\xE3o encontrado" });
   }
-  const removedHub = db.hubs[index];
-  db.hubs.splice(index, 1);
+  const removedHub = db.hubs[index2];
+  db.hubs.splice(index2, 1);
   const activeCount = db.hubs.filter((h) => h.isActive).length;
   if (activeCount === 0 && db.hubs.length > 0) {
     db.hubs[0].isActive = true;
@@ -5948,13 +6292,13 @@ app.post("/api/hubs/:id/set-active", (req, res) => {
   const db = loadDB();
   if (!db.hubs) db.hubs = [];
   const id = req.params.id;
-  const index = db.hubs.findIndex((h) => h.id === id);
-  if (index === -1) {
+  const index2 = db.hubs.findIndex((h) => h.id === id);
+  if (index2 === -1) {
     return res.status(404).json({ error: "HUB n\xE3o encontrado" });
   }
   db.hubs.forEach((h) => h.isActive = false);
-  db.hubs[index].isActive = true;
-  const activeHubName = db.hubs[index].name;
+  db.hubs[index2].isActive = true;
+  const activeHubName = db.hubs[index2].name;
   const now = /* @__PURE__ */ new Date();
   const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const newActivity = {
@@ -6117,16 +6461,16 @@ app.put("/api/finance/transactions/:id", (req, res) => {
   if (!db.financeTransactions) {
     db.financeTransactions = [];
   }
-  const index = db.financeTransactions.findIndex((tx) => tx.id === id);
-  if (index === -1) {
+  const index2 = db.financeTransactions.findIndex((tx) => tx.id === id);
+  if (index2 === -1) {
     return res.status(404).json({ error: "Lan\xE7amento n\xE3o encontrado" });
   }
   const updatedTx = {
-    ...db.financeTransactions[index],
+    ...db.financeTransactions[index2],
     ...req.body,
-    amount: req.body.amount !== void 0 ? parseFloat(req.body.amount) : db.financeTransactions[index].amount
+    amount: req.body.amount !== void 0 ? parseFloat(req.body.amount) : db.financeTransactions[index2].amount
   };
-  db.financeTransactions[index] = updatedTx;
+  db.financeTransactions[index2] = updatedTx;
   saveDB(db);
   res.json(updatedTx);
 });
@@ -6136,11 +6480,11 @@ app.delete("/api/finance/transactions/:id", async (req, res) => {
   if (!db.financeTransactions) {
     db.financeTransactions = [];
   }
-  const index = db.financeTransactions.findIndex((tx) => tx.id === id);
-  if (index === -1) {
+  const index2 = db.financeTransactions.findIndex((tx) => tx.id === id);
+  if (index2 === -1) {
     return res.status(404).json({ error: "Lan\xE7amento n\xE3o encontrado" });
   }
-  db.financeTransactions.splice(index, 1);
+  db.financeTransactions.splice(index2, 1);
   saveDB(db);
   if (dbConnection) {
     try {
@@ -6224,18 +6568,18 @@ app.put("/api/finance/reports/:id", async (req, res) => {
     if (!db.financialReports) {
       db.financialReports = [];
     }
-    const index = db.financialReports.findIndex((r) => r.id === id);
-    if (index === -1) {
+    const index2 = db.financialReports.findIndex((r) => r.id === id);
+    if (index2 === -1) {
       return res.status(404).json({ error: "Relat\xF3rio n\xE3o encontrado" });
     }
-    const existing = db.financialReports[index];
+    const existing = db.financialReports[index2];
     const updated = {
       ...existing,
       ...req.body,
       id: existing.id,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-    db.financialReports[index] = updated;
+    db.financialReports[index2] = updated;
     await saveDB(db, true, true);
     res.json(updated);
   } catch (err) {
@@ -6249,11 +6593,11 @@ app.delete("/api/finance/reports/:id", async (req, res) => {
     if (!db.financialReports) {
       db.financialReports = [];
     }
-    const index = db.financialReports.findIndex((r) => r.id === id);
-    if (index === -1) {
+    const index2 = db.financialReports.findIndex((r) => r.id === id);
+    if (index2 === -1) {
       return res.status(404).json({ error: "Relat\xF3rio n\xE3o encontrado" });
     }
-    db.financialReports.splice(index, 1);
+    db.financialReports.splice(index2, 1);
     await saveDB(db, true, true);
     res.json({ success: true, id });
   } catch (err) {
