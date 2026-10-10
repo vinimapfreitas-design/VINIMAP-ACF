@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Package, MapPin, Search, CheckCircle2, Loader2, AlertCircle, Building, Sparkles, Phone, Mail, Hash } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Package, MapPin, Search, CheckCircle2, Loader2, AlertCircle, Building, Sparkles, Phone, Mail, Hash, RefreshCw, FileText, Calendar, DollarSign, ShieldAlert } from 'lucide-react';
 import { PartnerClient, Order } from '../types';
 import { fetchAddressByCep, searchCepByAddress, formatCep, cleanCepDigits, AddressIndexResult } from '../utils/cepUtils';
 
@@ -7,13 +7,31 @@ interface NewOrderModalProps {
   onClose: () => void;
   onAddOrder?: (order: Partial<Order>) => Promise<any> | void;
   partnerClients?: PartnerClient[];
+  existingOrders?: Order[];
 }
 
 export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   onClose,
   onAddOrder,
-  partnerClients = []
+  partnerClients = [],
+  existingOrders = []
 }) => {
+  // Helper to calculate next unique sequential order number
+  const getNextSuggestedPedido = () => {
+    if (!existingOrders || existingOrders.length === 0) return 'PED-01001';
+    const nums = existingOrders
+      .map(o => {
+        const ped = o.pedido || o.id;
+        if (!ped || typeof ped !== 'string') return null;
+        const match = ped.match(/^ped-(\d+)/i) || ped.match(/^(\d+)$/);
+        return match ? parseInt(match[1], 10) : null;
+      })
+      .filter((n): n is number => n !== null && !isNaN(n));
+    const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 1001;
+    return `PED-${String(nextNum).padStart(5, '0')}`;
+  };
+
+  const [pedido, setPedido] = useState(() => getNextSuggestedPedido());
   const [customerName, setCustomerName] = useState('');
   const [address, setAddress] = useState('');
   const [numero, setNumero] = useState('');
@@ -26,8 +44,38 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const [cep, setCep] = useState('');
   const [region, setRegion] = useState('Centro-Paulista');
   const [value, setValue] = useState('150.00');
+  const [valorEntrega, setValorEntrega] = useState('15.00');
+  const [dataSolicitacao, setDataSolicitacao] = useState(() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  });
   const [codigoCliente, setCodigoCliente] = useState(partnerClients[0]?.codigoCliente || 'CLI-001');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // If existing orders change or on mount, ensure a unique suggested number if currently PED-01001
+  useEffect(() => {
+    if (!pedido || pedido === 'PED-01001') {
+      const nextSug = getNextSuggestedPedido();
+      if (nextSug !== pedido) {
+        setPedido(nextSug);
+      }
+    }
+  }, [existingOrders]);
+
+  // Real-time conflict validation against existing orders
+  const conflictOrder = useMemo(() => {
+    if (!pedido.trim() || !existingOrders || existingOrders.length === 0) return null;
+    const clean = pedido.trim().toLowerCase();
+    const cleanNoPed = clean.replace(/^ped-/, '');
+    return existingOrders.find(o => {
+      if (o.isDeleted || o.deleted) return false;
+      const oId = String(o.id || '').toLowerCase();
+      const oPed = String(o.pedido || '').toLowerCase();
+      if (oId === clean || oPed === clean) return true;
+      if (cleanNoPed && (oId === cleanNoPed || oId === `ped-${cleanNoPed}` || oPed === cleanNoPed)) return true;
+      return false;
+    });
+  }, [pedido, existingOrders]);
 
   // Indexing and feedback states
   const [isCepLoading, setIsCepLoading] = useState(false);
@@ -214,7 +262,84 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
-    if (!customerName.trim() || !address.trim()) return;
+
+    // 1. Validação estrita dos campos obrigatórios para evitar conflitos no sistema
+    const cleanPedido = pedido.trim();
+    if (!cleanPedido) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O campo Número do Pedido (*) é obrigatório para não haver conflitos no sistema.'
+      });
+      return;
+    }
+
+    if (conflictOrder) {
+      setIndexFeedback({
+        type: 'error',
+        text: `Conflito de Pedido: O número "${cleanPedido}" já está cadastrado no sistema (Pedido #${conflictOrder.id} - ${conflictOrder.customerName || conflictOrder.procurarPor || 'Cliente'}). Informe outro número exclusivo.`
+      });
+      return;
+    }
+
+    if (!codigoCliente) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'Selecione o Cliente Parceiro correspondente (*).'
+      });
+      return;
+    }
+
+    if (!customerName.trim()) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O Nome do Destinatário / Cliente (*) é obrigatório.'
+      });
+      return;
+    }
+
+    const cleanCep = cleanCepDigits(cep);
+    if (!cleanCep || cleanCep.length !== 8) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O CEP de destino (*) é obrigatório e deve conter 8 dígitos numéricos válidos.'
+      });
+      return;
+    }
+
+    if (!address.trim()) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O Endereço (Rua/Avenida/Logradouro) (*) é obrigatório.'
+      });
+      return;
+    }
+
+    const cleanNum = numero.trim();
+    if (!cleanNum) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O Número do endereço (*) é obrigatório. Caso não tenha, digite S/N.'
+      });
+      return;
+    }
+
+    const cleanTel = telefone.trim();
+    if (!cleanTel) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O Telefone / WhatsApp de contato (*) é obrigatório para localização pelo condutor.'
+      });
+      return;
+    }
+
+    const parsedValue = parseFloat(value);
+    if (isNaN(parsedValue) || parsedValue < 0) {
+      setIndexFeedback({
+        type: 'error',
+        text: 'O Valor Declarado do pedido (*) é obrigatório e deve ser numérico.'
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     let hasClosed = false;
@@ -226,7 +351,6 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     };
 
     try {
-      const cleanNum = numero.trim();
       const cleanCompl = complemento.trim();
       let finalAddress = address.trim();
       if (cleanNum && !finalAddress.includes(cleanNum)) {
@@ -241,15 +365,21 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
       const brDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
 
       if (onAddOrder) {
+        const effectiveId = cleanPedido.toUpperCase().startsWith('PED-') 
+          ? cleanPedido.toUpperCase() 
+          : `PED-${cleanPedido}`;
+
         // Enforce maximum safety timeout so the modal never freezes in "Salvando..."
         const addPromise = Promise.resolve(onAddOrder({
+          id: effectiveId,
+          pedido: cleanPedido,
           customerName: customerName.trim(),
           procurarPor: customerName.trim(),
           address: finalAddress,
-          numero: cleanNum || undefined,
+          numero: cleanNum,
           complemento: cleanCompl || undefined,
-          telefone: telefone.trim() || undefined,
-          phone: telefone.trim() || undefined,
+          telefone: cleanTel,
+          phone: cleanTel,
           email: email.trim() || undefined,
           bairro: bairro.trim() || undefined,
           cidadeMunicipio: cidade || 'São Paulo',
@@ -258,7 +388,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
           uf: uf || 'SP',
           cep: cep.trim(),
           region,
-          value: parseFloat(value) || 0,
+          value: parsedValue,
           status: 'pending',
           time: brTime,
           dataSolicitacao: brDate,
@@ -338,18 +468,81 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar text-xs sm:text-sm">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Cliente Parceiro</label>
-              <select
-                value={codigoCliente}
-                onChange={(e) => setCodigoCliente(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-blue-500 focus:bg-white text-slate-800"
-              >
-                {partnerClients.map(p => (
-                  <option key={p.id} value={p.codigoCliente || p.id}>{p.name} ({p.codigoCliente || p.id})</option>
-                ))}
-              </select>
+            
+            {/* 1. NÚMERO DO PEDIDO (OBRIGATÓRIO) E CLIENTE PARCEIRO */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-3.5 bg-blue-50/50 border border-blue-200/80 rounded-2xl">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <FileText size={13} className="text-blue-600" />
+                    <span>Número do Pedido *</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setPedido(getNextSuggestedPedido())}
+                    className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                    title="Gerar próximo número sequencial exclusivo"
+                  >
+                    <RefreshCw size={10} /> Sugerir Próximo
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    value={pedido}
+                    onChange={(e) => setPedido(e.target.value)}
+                    placeholder="Ex: PED-01031"
+                    className={`w-full px-3.5 py-2 bg-white border rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none transition-all ${
+                      conflictOrder
+                        ? 'border-rose-400 bg-rose-50/50 text-rose-900 focus:ring-2 focus:ring-rose-500/20'
+                        : 'border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900'
+                    }`}
+                  />
+                  {conflictOrder ? (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-rose-600" title="Número em conflito">
+                      <AlertCircle size={15} />
+                    </span>
+                  ) : (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600" title="Número disponível">
+                      <CheckCircle2 size={15} />
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-0.5 block">Identificador obrigatório exclusivo para controle operacional</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1.5">
+                  <Building size={13} className="text-blue-600" />
+                  <span>Cliente Parceiro *</span>
+                </label>
+                <select
+                  value={codigoCliente}
+                  onChange={(e) => setCodigoCliente(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-xs sm:text-sm font-bold text-slate-800 focus:outline-none focus:border-blue-500"
+                >
+                  {partnerClients.map(p => (
+                    <option key={p.id} value={p.codigoCliente || p.id}>{p.name} ({p.codigoCliente || p.id})</option>
+                  ))}
+                  {partnerClients.length === 0 && <option value="CLI-001">CLI-001 - Padrão</option>}
+                </select>
+                <span className="text-[10px] text-slate-500 mt-0.5 block">Empresa contratante responsável pelo envio</span>
+              </div>
             </div>
+
+            {/* Banner de Conflito em Tempo Real */}
+            {conflictOrder && (
+              <div className="p-3 bg-rose-50 border-2 border-rose-300 rounded-2xl text-xs text-rose-900 font-bold flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-black text-rose-950">⚠️ Conflito no Sistema: O número "{pedido}" já está em uso!</p>
+                  <p className="text-[11px] text-rose-800 font-normal leading-relaxed">
+                    Já existe um pedido cadastrado com este identificador para o destinatário <strong>{conflictOrder.customerName || conflictOrder.procurarPor || 'Cliente'}</strong> (ID: {conflictOrder.id}). Altere o número acima ou clique em <em>Sugerir Próximo</em> para salvar sem duplicidade.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Nome do Cliente / Destinatário *</label>
@@ -368,10 +561,11 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                   <Phone size={13} className="text-emerald-600" />
-                  <span>Telefone / WhatsApp</span>
+                  <span>Telefone / WhatsApp *</span>
                 </label>
                 <input
                   type="tel"
+                  required
                   value={telefone}
                   onChange={(e) => handlePhoneChange(e.target.value)}
                   placeholder="(11) 98765-4321"

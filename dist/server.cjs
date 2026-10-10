@@ -4011,13 +4011,39 @@ app.get("/api/orders", async (req, res) => {
 });
 app.post("/api/orders", async (req, res) => {
   const db = loadDB();
+  const inputPedido = typeof req.body.pedido === "string" ? req.body.pedido.trim() : req.body.pedido ? String(req.body.pedido).trim() : "";
+  const inputId = typeof req.body.id === "string" ? req.body.id.trim() : "";
+  if (inputPedido || inputId) {
+    const checkTarget = (inputPedido || inputId).toLowerCase();
+    const cleanCheck = checkTarget.replace(/^ped-/, "");
+    const conflict = db.orders.find((o) => {
+      if (o.isDeleted || o.deleted) return false;
+      const oId = String(o.id || "").toLowerCase();
+      const oPed = String(o.pedido || "").toLowerCase();
+      if (oId === checkTarget || oPed === checkTarget) return true;
+      if (cleanCheck && (oId === cleanCheck || oId === `ped-${cleanCheck}` || oPed === cleanCheck)) return true;
+      return false;
+    });
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        error: `Conflito de Pedido: O n\xFAmero "${inputPedido || inputId}" j\xE1 est\xE1 cadastrado no sistema para o cliente "${conflict.customerName || conflict.procurarPor || "Destinat\xE1rio"}" (${conflict.id}). Por favor, informe um n\xFAmero exclusivo.`,
+        conflictingOrder: conflict
+      });
+    }
+  }
   const pedNums = db.orders.map((o) => {
     if (!o || !o.id || typeof o.id !== "string") return null;
     const match = o.id.match(/^ped-(\d+)/i) || o.id.match(/^(\d+)$/);
     return match ? parseInt(match[1], 10) : null;
   }).filter((num) => num !== null && !isNaN(num));
   const nextIdNum = pedNums.length > 0 ? Math.max(...pedNums) + 1 : 1001;
-  const newId = req.body.id && typeof req.body.id === "string" && req.body.id.trim() && !db.orders.some((o) => o.id === req.body.id.trim()) ? req.body.id.trim() : `PED-${String(nextIdNum).padStart(5, "0")}`;
+  let newId = `PED-${String(nextIdNum).padStart(5, "0")}`;
+  if (inputId && !db.orders.some((o) => o.id === inputId)) {
+    newId = inputId;
+  } else if (inputPedido && inputPedido.toUpperCase().startsWith("PED-") && !db.orders.some((o) => o.id === inputPedido.toUpperCase())) {
+    newId = inputPedido.toUpperCase();
+  }
   const now = /* @__PURE__ */ new Date();
   const timeStr = getBrasiliaTimeStr(now);
   const dateStr = getBrasiliaDateStr(now);
@@ -4026,6 +4052,7 @@ app.post("/api/orders", async (req, res) => {
   const newOrder = {
     ...req.body,
     id: newId,
+    pedido: inputPedido || req.body.pedido || newId,
     time: timeStr,
     dataSolicitacao: req.body.dataSolicitacao || dateStr,
     versionTimestamp: nowTimestamp,

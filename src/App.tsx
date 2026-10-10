@@ -2883,6 +2883,12 @@ const markOrderAsDeleted = (orderId: string) => {
       clearTimeout(abortTimer);
 
       const data = await ensureJsonResponse(res);
+
+      if (!res.ok) {
+        const errorMsg = data?.error || `Erro HTTP ${res.status}: Não foi possível cadastrar o pedido.`;
+        throw new Error(errorMsg);
+      }
+
       const createdOrder: Order = data?.order || data;
 
       if (createdOrder && createdOrder.id) {
@@ -2907,17 +2913,30 @@ const markOrderAsDeleted = (orderId: string) => {
 
       // Run database sync silently in the background
       fetchDatabase().catch(err => console.warn('Background database sync warning:', err));
-    } catch (err) {
+    } catch (err: any) {
+      // Se for um conflito explícito retornado pelo servidor, repassa o erro para o modal exibir o alerta
+      if (err?.message && (err.message.includes('Conflito') || err.message.includes('conflito') || err.message.includes('já está cadastrado'))) {
+        throw err;
+      }
+
       console.warn('Erro ao adicionar pedido ao servidor, registrando fallback local imediato:', err);
 
-      const nextIdNum = orders.length + 1;
-      const newId = `PED-${String(nextIdNum).padStart(5, '0')}`;
+      const pedNums = orders
+        .map(o => {
+          if (!o || !o.id) return null;
+          const match = String(o.id).match(/^ped-(\d+)/i) || String(o.id).match(/^(\d+)$/);
+          return match ? parseInt(match[1], 10) : null;
+        })
+        .filter((n): n is number => n !== null && !isNaN(n));
+      const nextIdNum = pedNums.length > 0 ? Math.max(...pedNums) + 1 : orders.length + 1001;
+      const newId = (newOrderData as any).id || (newOrderData as any).pedido || `PED-${String(nextIdNum).padStart(5, '0')}`;
       const now = new Date();
       const timeStr = formatToBrasiliaTime(now);
       
       const newOrder: Order = {
         ...newOrderData,
         id: newId,
+        pedido: (newOrderData as any).pedido || newId,
         time: timeStr,
         dataSolicitacao: newOrderData.dataSolicitacao || formatToBrasiliaDate(now),
         statusSincronizado: newOrderData.status,
@@ -5658,6 +5677,7 @@ const markOrderAsDeleted = (orderId: string) => {
           onClose={() => setIsNewOrderModalOpen(false)} 
           onAddOrder={handleAddOrder} 
           partnerClients={partnerClients}
+          existingOrders={orders}
         />
       )}
 
