@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Logs & temporary files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+src/debug.log
+*.log
+
+# Environment secrets - never push .env to the repository
+.env
+.env.*
+!.env.example
+.firestore_quota_circuit.json
+
+# Source maps - keep large .map files out to prevent OOM
+*.map
+
+# Local runtime database (contains photos/signatures base64 - can be hundreds of MB)
+src/db.json
+src/db.json.bak
+# redeploy postgres
